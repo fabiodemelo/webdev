@@ -1,8 +1,11 @@
-# webdev — Block Specs
+# webdev — Build Specs
 
-Paste-ready specs for full web page blocks. Each block is a self-contained `SPEC.md` you drop into any shadcn + Tailwind + TypeScript project. An AI agent reads the spec, installs deps, copies the component, and wires it in.
+Paste-ready specs for web UI and features. Each spec is self-contained — drop it into any project and an AI agent reads it, installs deps, writes the code, and wires it in.
 
-Think of these as **skills, but for UI blocks.**
+Think of these as **skills, but for things you build.** Two tiers:
+
+- **blocks/** — single UI page sections (testimonial, hero, pricing). Target stack: shadcn + Tailwind + TypeScript.
+- **systems/** — full features / subsystems (data model + API + UI). Stack varies per spec.
 
 ## How to use
 
@@ -21,15 +24,20 @@ Think of these as **skills, but for UI blocks.**
 
 ## Catalog
 
+### Blocks
+
 | Block | Category | Deps | Spec |
 |-------|----------|------|------|
 | Testimonials (animated columns) | Social proof | `motion` | [SPEC.md](blocks/testimonials-columns/SPEC.md) |
 
-## Stack assumption
+### Systems
 
-All blocks target:
-- **shadcn** project structure
-- **Tailwind CSS**
-- **TypeScript**
+| System | Category | Stack | Spec |
+|--------|----------|-------|------|
+| Transactional email template system | Admin / email infra | FastAPI + doc store + email SDK + React | [SPEC.md](systems/email-template-system/SPEC.md) |
 
-Each spec includes setup-fallback instructions if the target project lacks these.
+## Stack assumptions
+
+**Blocks** target shadcn + Tailwind + TypeScript. Each block spec includes setup-fallback instructions if the target project lacks these.
+
+**Systems** declare their own reference stack per spec (map onto project equivalents).
