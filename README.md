@@ -38,6 +38,7 @@ Think of these as **skills, but for things you build.** Three tiers:
 | Transactional email template system | Admin / email infra | FastAPI + doc store + email SDK + React | [SPEC.md](systems/email-template-system/SPEC.md) |
 | Coupon code system | Billing / discounts | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/coupon-code-system/SPEC.md) |
 | Paid subscription / membership system | Billing / subscriptions (full stack) | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/paid-subscription-system/SPEC.md) |
+| Support ticket system | Support / helpdesk | FastAPI + MongoDB + React + S3 | [SPEC.md](systems/support-ticket-system/SPEC.md) |
 
 ### Playbooks
 
