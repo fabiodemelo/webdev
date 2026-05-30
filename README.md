@@ -2,10 +2,11 @@
 
 Paste-ready specs for web UI and features. Each spec is self-contained — drop it into any project and an AI agent reads it, installs deps, writes the code, and wires it in.
 
-Think of these as **skills, but for things you build.** Two tiers:
+Think of these as **skills, but for things you build.** Three tiers:
 
 - **blocks/** — single UI page sections (testimonial, hero, pricing). Target stack: shadcn + Tailwind + TypeScript.
 - **systems/** — full features / subsystems (data model + API + UI). Stack varies per spec.
+- **playbooks/** — multi-page strategies applied across a whole site (content, SEO, pricing, trust pages). Stack-flexible.
 
 ## How to use
 
@@ -38,8 +39,16 @@ Think of these as **skills, but for things you build.** Two tiers:
 | Coupon code system | Billing / discounts | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/coupon-code-system/SPEC.md) |
 | Paid subscription / membership system | Billing / subscriptions (full stack) | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/paid-subscription-system/SPEC.md) |
 
+### Playbooks
+
+| Playbook | Category | Stack | Spec |
+|----------|----------|-------|------|
+| Content + SEO | Content strategy + SEO + GEO | Stack-flexible (ref: Astro/Next + Zod) | [SPEC.md](playbooks/content-seo/SPEC.md) |
+
 ## Stack assumptions
 
 **Blocks** target shadcn + Tailwind + TypeScript. Each block spec includes setup-fallback instructions if the target project lacks these.
 
 **Systems** declare their own reference stack per spec (map onto project equivalents).
+
+**Playbooks** are stack-flexible strategy guides applied across an entire site; swap `[BRACKET]` placeholders for target details.
