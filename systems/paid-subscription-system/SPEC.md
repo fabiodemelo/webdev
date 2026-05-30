@@ -270,6 +270,18 @@ API keys + webhook secret stored in a platform-settings doc (NOT env) so admins 
 
 **9.5 Bulk assignment tool** — retroactively assign a default plan to subscribers without one, with `dry_run` flag. Picks defaults by highest role present. Skips subscribers already on active/trialing.
 
+**9.6 API token / provider keys page** — admin screen to save + validate the payment-provider credentials (§8) without redeploys.
+
+Layout:
+- **Mode toggle:** Test / Live (`stripe_mode`). The active mode drives which key set is used at runtime; the page shows which mode is live so admins don't mix them up.
+- **Key fields:** publishable + secret key for the selected mode (`test_*` / `live_*`), `webhook_secret`, optional `legacy_secret_key`. Secret fields are **password-type inputs**, pre-filled masked (`sk_live_****…1234` — last 4 only) and never returned in plaintext from the API. Empty submit = leave unchanged; only non-masked edits are persisted.
+- **Save:** `PUT /admin/membership/provider-keys`. Server validates each key's prefix against its mode (`pk_test_`/`sk_test_` vs `pk_live_`/`sk_live_`) and REFUSES on mismatch (§8 rule) with a field-level error. Stores in `platform_settings`, sets `updated_at`. Success toast.
+- **Validate / Test connection:** `POST /admin/membership/provider-keys/validate` — server makes one lightweight live provider call with the saved (or just-entered) key (e.g. retrieve account / list 1 price). Returns `{ valid, mode, account_id?, message }`. UI shows a green "Connected — acct_…" or red error with the provider's message. Validates BEFORE the admin relies on checkout. Does not charge anything.
+- **Webhook check:** display the expected webhook URL (`{origin}/webhook/stripe`) to copy into the provider dashboard, plus a "last webhook received at" timestamp (from the most recent `webhook_processed_at`) so admins can confirm delivery is wired.
+- **Status row:** badges for `mode`, `keys saved?`, `last validated at`, `webhook seen?`.
+
+Behavior: masked secrets are never echoed back; a save with the field left at its masked placeholder is a no-op for that field. Validate is rate-limited / debounced to avoid hammering the provider. All actions super-admin only.
+
 ### 10. Subscriber UI (Billing Page)
 
 - **Current plan:** name, price, billing cycle, trial-end/next-renewal date, status badge.
@@ -304,6 +316,9 @@ API keys + webhook secret stored in a platform-settings doc (NOT env) so admins 
 | `DELETE /main-admin/coupons/{id}` | Hard-delete coupon. |
 | `GET /admin/membership/settings` | Get global membership settings. |
 | `PUT /admin/membership/settings` | Update global membership settings. |
+| `GET /admin/membership/provider-keys` | Get provider key config — secrets MASKED (last 4 only), plus mode, last_validated_at, webhook URL + last-seen. |
+| `PUT /admin/membership/provider-keys` | Save provider keys + webhook secret + mode. Prefix-validated per mode; refuses mismatch. Masked/empty fields = no-op. |
+| `POST /admin/membership/provider-keys/validate` | Test connection — one lightweight provider call with active key. Returns `{ valid, mode, account_id?, message }`. No charge. |
 | `GET /admin/membership/companies` | Per-subscriber billing status + overage. Filter by status. |
 | `PUT /admin/membership/companies/{id}/payment-status` | Manual override of is_paid / cc_valid / subscription_status. |
 | `GET /admin/membership/summary` | Dashboard KPIs (MRR, ARR, counts by status, settings). |
@@ -321,6 +336,8 @@ API keys + webhook secret stored in a platform-settings doc (NOT env) so admins 
 - API key loader REFUSES a key whose prefix doesn't match current mode (test vs live).
 - All plan/coupon/settings/billing-review endpoints gated to super-admin role.
 - Provider keys masked in admin UI ("sk_****"), only updated, never read back in plaintext.
+- `GET /admin/membership/provider-keys` returns secrets masked (last 4 only); a save left at the masked placeholder is a no-op (never overwrites a real key with the mask).
+- Provider-key save re-applies the prefix-vs-mode check and rejects mismatches before persisting; validate makes a non-charging read-only provider call.
 
 ### 13. Visual Design Tokens
 
@@ -350,6 +367,7 @@ API keys + webhook secret stored in a platform-settings doc (NOT env) so admins 
 4. Build admin Coupons CRUD. Normalize codes uppercase. Validate discount_type + limits.
 5. Build singleton membership-settings GET/PUT with defaults (grace_period_days=14, require_valid_cc=false).
 6. Implement provider key loader: mode + dedicated test/live keys + env fallback + prefix-mismatch refusal.
+6b. Build the API token / provider-keys admin page (§9.6) + endpoints: GET (masked), PUT (prefix-validated save), POST validate (test connection). Masked-field save = no-op.
 7. Implement `POST /payments/subscribe`: load plan from DB, build inline price_data, attach metadata, insert pending transaction, return checkout_url.
 8. Implement `GET /payments/status/{session_id}`: retrieve session, update transaction, activate on paid, return status.
 9. Implement `POST /payments/activate-free` with full coupon validation + atomic redemption counters.
