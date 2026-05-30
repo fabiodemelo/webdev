@@ -35,6 +35,7 @@ Think of these as **skills, but for things you build.** Two tiers:
 | System | Category | Stack | Spec |
 |--------|----------|-------|------|
 | Transactional email template system | Admin / email infra | FastAPI + doc store + email SDK + React | [SPEC.md](systems/email-template-system/SPEC.md) |
+| Coupon code system | Billing / discounts | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/coupon-code-system/SPEC.md) |
 
 ## Stack assumptions
 
