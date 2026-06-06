@@ -5,6 +5,7 @@ Paste-ready specs for web UI and features. Each spec is self-contained — drop 
 Think of these as **skills, but for things you build.** Three tiers:
 
 - **blocks/** — single UI page sections (testimonial, hero, pricing). Target stack: shadcn + Tailwind + TypeScript.
+- **patterns/** — small reusable UI/layout patterns (shared chrome, wiring tricks). Stack-agnostic.
 - **systems/** — full features / subsystems (data model + API + UI). Stack varies per spec.
 - **playbooks/** — multi-page strategies applied across a whole site (content, SEO, pricing, trust pages). Stack-flexible.
 
@@ -30,6 +31,12 @@ Think of these as **skills, but for things you build.** Three tiers:
 | Block | Category | Deps | Spec |
 |-------|----------|------|------|
 | Testimonials (animated columns) | Social proof | `motion` | [SPEC.md](blocks/testimonials-columns/SPEC.md) |
+
+### Patterns
+
+| Pattern | Category | Stack | Spec |
+|---------|----------|-------|------|
+| Global brand bar | UI / layout chrome | React Native + PHP/HTML/CSS | [SPEC.md](patterns/global-brand-bar/SPEC.md) |
 
 ### Systems
 
