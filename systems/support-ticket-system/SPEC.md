@@ -216,7 +216,44 @@ deleteSetting(id)
 
 **11.4 Mobile/user client** — list with filters + status pills, ticket detail with comments + attachments, create form, push-notification deep links (`ticket_id`).
 
-### 12. Security Rules
+### 12. Reference Schema (MySQL DDL)
+
+Exact build-ready schema — full file: [reference/schema.sql](reference/schema.sql) (InnoDB, utf8mb4; includes the seed `INSERT` for default statuses/priorities/departments). Core tables:
+
+```sql
+CREATE TABLE `tickets` (
+  `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ticket_number`   INT UNSIGNED NOT NULL,
+  `title`           VARCHAR(500) NOT NULL,
+  `description`     TEXT,
+  `department`      VARCHAR(100) DEFAULT 'General',
+  `priority`        ENUM('low','medium','high') NOT NULL DEFAULT 'medium',
+  `status`          VARCHAR(50)  NOT NULL DEFAULT 'open',  -- value from ticket_settings
+  `is_private`      TINYINT(1)   NOT NULL DEFAULT 0,
+  `due_date`        VARCHAR(20),                           -- 'YYYY-MM-DD'
+  `created_by`      INT NOT NULL DEFAULT 0,
+  `created_by_name` VARCHAR(255),
+  `closed_at`       DATETIME, `closed_by` INT, `closed_by_name` VARCHAR(255),
+  `created_at`      DATETIME NOT NULL DEFAULT current_timestamp(),
+  `updated_at`      DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `reminder_sent`   TINYINT(1) NOT NULL DEFAULT 0,         -- due-date cron, one-shot
+  `overdue_sent`    TINYINT(1) NOT NULL DEFAULT 0,         -- overdue cron, one-shot
+  PRIMARY KEY (`id`), UNIQUE KEY `uq_ticket_number` (`ticket_number`),
+  KEY (`status`), KEY (`priority`), KEY (`department`), KEY (`created_by`), KEY (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+Child tables (full DDL in the .sql file):
+- `ticket_assignees` / `ticket_members` — `(ticket_id, user_id, user_name)`, unique `(ticket_id,user_id)`, indexed both ways.
+- `ticket_comments` — `(ticket_id, author_id, author_name, content TEXT, created_at)`.
+- `ticket_time_entries` — `(ticket_id, logged_by, logged_by_name, duration_minutes, description, logged_at)`.
+- `ticket_activity_log` — `(ticket_id, actor_id, actor_name, action, old_value, new_value, created_at)`.
+- `ticket_attachments` — `(ticket_id, name, object_key VARCHAR(1000), size, content_type, uploaded_by, uploaded_by_id, uploaded_at)`.
+- `ticket_settings` — `(type, value, label, color, sort_order)`, unique `(type,value)`, indexed `type`.
+
+> Document-store equivalent: collapse the child tables into embedded arrays on the ticket document (`comments[]`, `time_entries[]`, `activity_log[]`, `attachments[]`, `assignee_ids[]`, `member_ids[]`); keep `ticket_settings` a small collection. The data-access interface (§9) is identical either way.
+
+### 13. Security Rules
 
 - Visibility enforced on BOTH list (filter) and single-read (`user_can_see_ticket`) — non-privileged users get 403/404 for tickets they don't own/assign/member.
 - Super-admin gate is `level <= 1`; everyone else is scoped.
