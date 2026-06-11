@@ -10,6 +10,17 @@ Authenticated end users open tickets, exchange threaded messages with admins, op
 
 ---
 
+## Visual Reference
+
+Built-result screenshots from the source app — visual guideline for re-implementation.
+
+| View | Preview |
+|------|---------|
+| Admin inbox — search, status filter, ticket table (§10.1) | ![Admin inbox](preview/admin-inbox.png) |
+| Admin thread — bubbles, admin styling, attachment chip, reply box, Close (§10.3) | ![Admin thread](preview/admin-thread.png) |
+
+---
+
 ## Integration Prompt
 
 > Paste everything below this line into the target project. Swap "tenant" for the right noun (company / team / workspace / account). Single-tenant apps can ignore the tenant scoping section.

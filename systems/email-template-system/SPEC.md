@@ -6,6 +6,18 @@ Admin-managed system that lets an administrator view and customize every transac
 
 ---
 
+## Visual Reference
+
+Built-result screenshots from the source app — visual guideline for re-implementation.
+
+| View | Preview |
+|------|---------|
+| Templates list + tags info box (§9.1) | ![Email templates list](preview/templates-list.png) |
+| Per-template editor — subject + body HTML + tags (§4, §9.3) | ![Template editor](preview/template-editor.png) |
+| Frame editor — email settings + frame HTML (§7, §9.1) | ![Frame editor](preview/frame-editor.png) |
+
+---
+
 ## Integration Prompt
 
 > Paste everything below this line into the target project.

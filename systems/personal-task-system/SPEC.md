@@ -10,6 +10,16 @@ Each authenticated user owns a private task list. Tasks have title, priority (hi
 
 ---
 
+## Visual Reference
+
+Built-result screenshot from the source app — visual guideline for re-implementation.
+
+| View | Preview |
+|------|---------|
+| My Tasks — KPI cards, All/Active/Completed filter, priority groups, status pills (§8) | ![My Tasks](preview/tasks.png) |
+
+---
+
 ## Integration Prompt
 
 > Paste everything below this line into the target project. Swap "tenant" for the right noun (company / team / workspace / account). Single-tenant apps skip the share-with-admins section.

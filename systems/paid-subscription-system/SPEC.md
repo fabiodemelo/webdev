@@ -10,6 +10,18 @@ Full membership stack: admin-defined tiered plans, hosted-checkout payments, a c
 
 ---
 
+## Visual Reference
+
+Built-result screenshots from the source app — visual guideline for re-implementation.
+
+| View | Preview |
+|------|---------|
+| Plans grid — Standard/Pro/Elite, "Most Popular" accent (§9.1) | ![Membership plans](preview/plans.png) |
+| Edit Plan modal — pricing, limits, features, badge/CTA (§9.1) | ![Edit plan modal](preview/edit-plan.png) |
+| API token / provider-keys page — test/live, masked keys, webhook (§9.6) | ![Stripe provider keys](preview/provider-keys.png) |
+
+---
+
 ## Integration Prompt
 
 > Paste everything below this line into the target project.
