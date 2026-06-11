@@ -48,7 +48,7 @@ Think of these as **skills, but for things you build.** Three tiers:
 | Support ticket system | Support / helpdesk | FastAPI + MongoDB + React + S3 | [SPEC.md](systems/support-ticket-system/SPEC.md) |
 | Personal task / to-do system | Productivity / tasks | FastAPI + MongoDB + React | [SPEC.md](systems/personal-task-system/SPEC.md) |
 | Training video library | Education / content | FastAPI + MongoDB + React + YouTube | [SPEC.md](systems/training-video-library/SPEC.md) |
-| Cancellation + retention module | Billing / retention / churn | Prisma/SQL + Node + React + Stripe | [SPEC.md](systems/cancellation-retention-module/SPEC.md) |
+| Cancellation + retention module | Billing / retention / churn | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/cancellation-retention-module/SPEC.md) |
 
 ### Playbooks
 

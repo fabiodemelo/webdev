@@ -2,11 +2,11 @@
 
 SaaS subscription cancellation flow with: configurable advance-notice window, one-time stay/retention offers (status-aware: trial vs paid), once-only enforcement per customer, platform-admin-editable policy (no code changes to tune), and optional activity-based seat billing.
 
-**Type:** feature subsystem (DB schema additions + policy config + API + Stripe wiring + frontend UX). Bolts onto an existing subscription product.
+**Type:** feature subsystem (subscription doc additions + policy config + API + Stripe wiring + frontend UX). Bolts onto an existing subscription product.
 
-**Reference stack:** Prisma/SQL (Subscription + PlatformConfig models) + Node API + React + Stripe. Replace `[Brand]` / `[brand]` and Stripe references as needed.
+**Reference stack:** FastAPI (Python) + MongoDB-style doc store + React + Stripe. Replace `[Brand]` / `[brand]` and Stripe references as needed.
 
-> **Related:** extends an existing subscription/billing system — see [paid-subscription-system](../paid-subscription-system/SPEC.md). This module adds the cancel/retain layer on top.
+> **Related:** extends an existing subscription/billing system — see [paid-subscription-system](../paid-subscription-system/SPEC.md). This module adds the cancel/retain layer on top, reusing its `membership_plans`, subscription state block, and Stripe adapter.
 
 ---
 
@@ -19,10 +19,10 @@ SaaS subscription cancellation flow with: configurable advance-notice window, on
 You are given a task to build a **cancellation + retention module** for a SaaS subscription product.
 
 Reference stack (map onto equivalents):
-- **DB:** Prisma/SQL — add fields to `Subscription` + `PlatformConfig`.
-- **API:** Node (apps/api). Routes restricted to subscription owner (or admin where noted).
-- **Frontend:** React (apps/web).
-- **Payments:** Stripe.
+- **Backend:** Python + FastAPI, async handlers, Pydantic models. Routes restricted to subscription owner (or admin where noted) via an auth dependency returning `sub` (user id), tenant/subscriber id, and role.
+- **Database:** document store (MongoDB-style). Cancellation + offer fields added to the existing subscription state block; policy lives on the `platform_settings` singleton.
+- **Frontend:** React (function components + hooks), shared API client with JWT auto-attach, toast notifications.
+- **Payments:** Stripe (Checkout already wired; this module adds cancel/coupon ops).
 
 ### 1. Business Rules
 
@@ -38,149 +38,158 @@ Reference stack (map onto equivalents):
 | Reactivation clears cancellation but keeps offer slot | Yes | Customer can change mind without consuming offer |
 | Active-seat billing threshold (optional) | 4 worked hours / month | Bill only engaged users; founder seat exempt |
 
-### 2. Database Schema (Subscription model additions)
+### 2. Data Model — subscription state additions
 
-```prisma
-model Subscription {
-  // … existing fields …
-  // Cancellation
-  cancelAtPeriodEnd          Boolean   @default(false)
-  cancelReason               String?
-  cancellationRequestedAt    DateTime?
-  scheduledCancellationDate  DateTime?
-  // One-time PAID retention offer
-  retentionOfferUsedAt       DateTime?
-  retentionOfferExpiresAt    DateTime?
-  // One-time TRIAL stay offer (independent of paid retention)
-  trialOfferUsedAt           DateTime?
-  trialOfferExpiresAt        DateTime?
-}
-```
+These fields are added to the subscriber's **subscription state block** (the same embedded block from [paid-subscription-system](../paid-subscription-system/SPEC.md) §3.3). MongoDB has no fixed schema — just write the fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cancel_at_period_end` | bool | Default false. Mirrors Stripe's flag. |
+| `cancel_reason` | str\|null | Stored verbatim from the cancel request. |
+| `cancellation_requested_at` | datetime\|null | Set on cancel; cleared on reactivate/accept-offer. |
+| `scheduled_cancellation_date` | datetime\|null | `now + notice_days`. |
+| `retention_offer_used_at` | datetime\|null | One-time PAID retention slot. |
+| `retention_offer_expires_at` | datetime\|null | When the paid discount stops applying. |
+| `trial_offer_used_at` | datetime\|null | One-time TRIAL stay slot (independent of paid). |
+| `trial_offer_expires_at` | datetime\|null | When the trial discount stops applying. |
 
 **Why two independent offer slots:** a single customer can be incentivized once during trial (10%/60d) AND once when they later try to cancel as a paid customer (30%/3mo). Sharing a single flag would lock them out of the second.
 
+Suggested index (for ops/reporting on pending cancellations): `{ subscription_status, scheduled_cancellation_date }`.
+
 ### 3. Platform Policy (admin-editable JSON)
 
-Stored on a singleton config row (`PlatformConfig.billingPolicy` or equivalent). Loaded on every cancel / accept-offer / seat-usage request.
+Stored on the `platform_settings` singleton under a `billing_policy` key (reuse the settings doc from paid-subscription-system §3.5). Loaded on every cancel / accept-offer / seat-usage request.
 
 ```json
 {
-  "cancellationNoticeDays": 60,
-  "seatMinHoursPerMonth": 4,
-  "trialOffer": {
+  "cancellation_notice_days": 60,
+  "seat_min_hours_per_month": 4,
+  "trial_offer": {
     "enabled": true,
-    "percentOff": 10,
-    "durationMonths": 2
+    "percent_off": 10,
+    "duration_months": 2
   },
-  "retentionOffer": {
+  "retention_offer": {
     "enabled": true,
-    "percentOff": 30,
-    "durationMonths": 3
+    "percent_off": 30,
+    "duration_months": 3
   }
 }
 ```
 
-**Validation (Zod or equivalent):**
-- `cancellationNoticeDays`: int, 0–365
-- `seatMinHoursPerMonth`: int, 0–200
-- `percentOff`: int, 1–100
-- `durationMonths`: int, 1–24
-- `enabled`: boolean
+**Validation (Pydantic):**
+- `cancellation_notice_days`: int, 0–365
+- `seat_min_hours_per_month`: int, 0–200
+- `percent_off`: int, 1–100
+- `duration_months`: int, 1–24
+- `enabled`: bool
 
-Normalizer must fall back to defaults when JSON is missing or partial.
+A `get_billing_policy()` normalizer must fall back to defaults (§11) when the key is missing or partial, and ignore unknown keys without raising.
 
-### 4. API Endpoints
+### 4. API Surface
 
-All routes restricted to subscription owner (or admin where noted).
+Router prefix `/billing`, mounted under global `/api`. All routes restricted to subscription owner (or admin where noted).
 
-**4.1 `GET /api/v1/billing/subscription`** (owner / admin) — returns full subscription state plus the currently applicable offer:
+**4.1 `GET /api/billing/subscription`** (owner / admin) — returns full subscription state plus the currently applicable offer:
 ```json
 {
-  "plan": { "name": "...", "basePriceCents": 3200, "seatPriceCents": 700 },
+  "plan": { "name": "...", "base_price_cents": 3200, "seat_price_cents": 700 },
   "status": "trialing | active | canceled",
-  "cancellationRequestedAt": null,
-  "scheduledCancellationDate": null,
-  "retentionOfferUsedAt": null,
-  "retentionOfferExpiresAt": null,
-  "trialOfferUsedAt": null,
-  "trialOfferExpiresAt": null,
+  "cancellation_requested_at": null,
+  "scheduled_cancellation_date": null,
+  "retention_offer_used_at": null,
+  "retention_offer_expires_at": null,
+  "trial_offer_used_at": null,
+  "trial_offer_expires_at": null,
   "policy": { /* full policy block */ },
   "offer": {
     "kind": "trial" | "retention",
     "available": true,
-    "percentOff": 10,
-    "durationMonths": 2,
+    "percent_off": 10,
+    "duration_months": 2,
     "label": "10% off for 60 days"
   }
 }
 ```
-`offer.kind` decided by `subscription.status === 'trialing'`. `available` = `policy.<kind>.enabled && !subscription.<kind>OfferUsedAt`. `label` dynamic from policy.
+`offer.kind` decided by `status == "trialing"`. `available` = `policy[kind].enabled and not subscription[f"{kind}_offer_used_at"]`. `label` dynamic from policy (`offer_label()` helper).
 
-**4.2 `POST /api/v1/billing/cancel`** (owner) — body `{ reason: string (1–500), feedback?: string }`:
-1. Load `policy.cancellationNoticeDays`.
-2. Compute `scheduledDate = now + policy.cancellationNoticeDays days`.
-3. Stripe: `subscriptions.update(id, { cancel_at: floor(scheduledDate.getTime()/1000), cancellation_details: { feedback: 'other', comment } })`. Use `cancel_at` (epoch seconds), NOT `cancel_at_period_end`, so the date precisely matches the policy.
-4. DB: set `cancellationRequestedAt = now`, `scheduledCancellationDate = scheduledDate`, `cancelReason = reason`, `cancelAtPeriodEnd = true`.
-5. Audit log: `action='subscription.cancel'`, after payload includes scheduled date.
+**4.2 `POST /api/billing/cancel`** (owner) — body `{ reason: str (1–500), feedback?: str }`:
+1. Load `policy.cancellation_notice_days`.
+2. Compute `scheduled_date = now + timedelta(days=notice_days)`.
+3. Stripe: `stripe.Subscription.modify(id, cancel_at=int(scheduled_date.timestamp()), cancellation_details={"feedback": "other", "comment": reason})`. Use `cancel_at` (epoch seconds), NOT `cancel_at_period_end`, so the date precisely matches the policy.
+4. DB `$set`: `cancellation_requested_at=now, scheduled_cancellation_date=scheduled_date, cancel_reason=reason, cancel_at_period_end=True`.
+5. Audit log: `action="subscription.cancel"`, after payload includes scheduled date.
 
-Response: `{ subscription, scheduledCancellationDate, retentionOfferAvailable: true }`.
+Response: `{ subscription, scheduled_cancellation_date, retention_offer_available: true }`.
 
-**4.3 `POST /api/v1/billing/retention-offer/accept`** (owner) — no body:
+**4.3 `POST /api/billing/retention-offer/accept`** (owner) — no body:
 1. Load policy.
-2. `isTrialing = subscription.status === 'trialing'`.
-3. `offerCfg = isTrialing ? policy.trialOffer : policy.retentionOffer`.
-4. **404** if `!offerCfg.enabled`.
-5. **409** if matching `<kind>OfferUsedAt` already set.
-6. **400** if `!isTrialing && !cancellationRequestedAt` (paid offer requires an open cancellation).
-7. Compute `expiresAt = now + offerCfg.durationMonths months`.
-8. Stripe coupon: stable ID `[brand]-{trial-stay|retention}-{percentOff}off-{durationMonths}mo`. Retrieve, fall back to create with `{ percent_off, duration: 'repeating', duration_in_months }`.
-9. Stripe subscription: `update(id, { cancel_at: null, cancel_at_period_end: false, coupon: couponId })`.
-10. DB: clear cancellation fields, set `<kind>OfferUsedAt = now`, `<kind>OfferExpiresAt = expiresAt`.
+2. `is_trialing = status == "trialing"`.
+3. `offer_cfg = policy["trial_offer"] if is_trialing else policy["retention_offer"]`.
+4. **404** if `not offer_cfg["enabled"]`.
+5. **409** if matching `{kind}_offer_used_at` already set.
+6. **400** if `not is_trialing and not cancellation_requested_at` (paid offer requires an open cancellation).
+7. Compute `expires_at = now + relativedelta(months=offer_cfg["duration_months"])`.
+8. Stripe coupon: stable ID `[brand]-{trial-stay|retention}-{percent_off}off-{duration_months}mo`. Retrieve, fall back to create with `percent_off, duration="repeating", duration_in_months`.
+9. Stripe subscription: `modify(id, cancel_at=None, cancel_at_period_end=False, coupon=coupon_id)`.
+10. DB: clear cancellation fields, `$set {kind}_offer_used_at=now, {kind}_offer_expires_at=expires_at`.
 11. Audit log: `subscription.trial-stay-accept` or `subscription.retention-accept`.
 
-Response: `{ subscription, offerKind: "trial", expiresAt }`.
+Response: `{ subscription, offer_kind: "trial", expires_at }`.
 
-**4.4 `POST /api/v1/billing/reactivate`** (owner) — rescinds an open cancellation WITHOUT consuming the offer slot:
-- Stripe: `subscriptions.update(id, { cancel_at: null, cancel_at_period_end: false })`.
-- DB: `cancelAtPeriodEnd=false, cancelReason=null, cancellationRequestedAt=null, scheduledCancellationDate=null`. Leave `<kind>OfferUsedAt` untouched.
+**4.4 `POST /api/billing/reactivate`** (owner) — rescinds an open cancellation WITHOUT consuming the offer slot:
+- Stripe: `modify(id, cancel_at=None, cancel_at_period_end=False)`.
+- DB `$set`: `cancel_at_period_end=False, cancel_reason=None, cancellation_requested_at=None, scheduled_cancellation_date=None`. Leave `{kind}_offer_used_at` untouched.
 - Audit: `subscription.reactivate`.
 
-**4.5 `GET /api/v1/billing/seat-usage?year=YYYY&month=MM`** (owner / admin) — optional. Billable seat count based on policy hour threshold:
-```sql
-SELECT userId, SUM(TIMESTAMPDIFF(SECOND, clockInAt, clockOutAt)) AS secs
-FROM TimeEntry
-WHERE companyId = ?
-  AND clockOutAt IS NOT NULL
-  AND clockInAt >= ?monthStart
-  AND clockInAt <  ?monthEnd
-GROUP BY userId;
+**4.5 `GET /api/billing/seat-usage?year=YYYY&month=MM`** (owner / admin) — optional. Billable seat count from a `time_entries` collection (clock-in/out docs), using the policy hour threshold. MongoDB aggregation:
+```python
+pipeline = [
+  { "$match": {
+      "company_id": company_id,
+      "clock_out_at": { "$ne": None },
+      "clock_in_at": { "$gte": month_start, "$lt": month_end },
+  }},
+  { "$group": {
+      "_id": "$user_id",
+      "secs": { "$sum": { "$divide": [
+          { "$subtract": ["$clock_out_at", "$clock_in_at"] }, 1000 ] } },  # ms → secs
+  }},
+]
 ```
-Counts users with `secs / 60 >= policy.seatMinHoursPerMonth * 60`. Owner seat always counted.
-Response: `{ year, month, minBillableHoursPerMonth, rule, billableSeats, totalActiveUsers, nonBillableUsers }`.
+Count users with `secs / 60 >= policy.seat_min_hours_per_month * 60`. Owner seat always counted.
+Response: `{ year, month, min_billable_hours_per_month, rule, billable_seats, total_active_users, non_billable_users }`.
 
-**4.6 `GET / PATCH /api/v1/platform/config`** (platform admin) — standard config CRUD. PATCH accepts `billingPolicy` matching §3 schema.
+**4.6 `GET / PUT /api/admin/membership/settings`** (platform admin) — reuse the membership-settings endpoint from paid-subscription-system §11; PUT accepts a `billing_policy` block matching §3.
 
 ### 5. Stripe Wiring
 
 - Use `cancel_at` (epoch seconds), NOT `cancel_at_period_end`, so the customer's date matches the policy exactly.
 - Auto-create coupons with stable IDs the first time each variant is accepted. ID format: `[brand]-{trial-stay|retention}-{percent}off-{months}mo`.
 - Idempotent retrieve-or-create:
-```js
-try { await stripe.coupons.retrieve(id) }
-catch { await stripe.coupons.create({ id, percent_off, duration: 'repeating', duration_in_months, name }) }
+```python
+import stripe
+try:
+    stripe.Coupon.retrieve(coupon_id)
+except stripe.error.InvalidRequestError:
+    stripe.Coupon.create(
+        id=coupon_id, percent_off=percent_off,
+        duration="repeating", duration_in_months=duration_months, name=name,
+    )
 ```
 - When admin changes percent/months in the UI, the next acceptance creates a fresh coupon. Existing acceptances keep their original coupon (locked-in pricing).
-- Optional: configure Stripe webhook to clear `cancellationRequestedAt` when `customer.subscription.deleted` fires.
+- Optional: in the existing Stripe webhook (paid-subscription-system §6), clear `cancellation_requested_at` when `customer.subscription.deleted` fires.
 
-### 6. Frontend UX
+### 6. Frontend UX (React)
 
 **6.1 Customer billing page** — three states drive UI:
 
 | State | Banner |
 |-------|--------|
-| `scheduledCancellationDate != null` | Amber: "Cancellation scheduled for [date]." + offer CTA (if available) + "Keep my subscription" CTA |
-| `retentionOfferExpiresAt != null && !scheduledCancellationDate` | Emerald: "30% retention discount active. Applies through [date]." |
-| `trialOfferExpiresAt != null && !scheduledCancellationDate` | Emerald: "10% trial-stay discount active. Applies through [date]." |
+| `scheduled_cancellation_date != null` | Amber: "Cancellation scheduled for [date]." + offer CTA (if available) + "Keep my subscription" CTA |
+| `retention_offer_expires_at != null && !scheduled_cancellation_date` | Emerald: "30% retention discount active. Applies through [date]." |
+| `trial_offer_expires_at != null && !scheduled_cancellation_date` | Emerald: "10% trial-stay discount active. Applies through [date]." |
 
 Cancel button → confirmation dialog:
 - Headline: "Cancel subscription"
@@ -189,12 +198,12 @@ Cancel button → confirmation dialog:
 - Required reason textarea (min 3 chars)
 - Two buttons: "Keep my subscription" (secondary) + "Schedule cancellation" (red primary)
 
-**6.2 Platform admin policy tab:**
+**6.2 Platform admin policy tab** (inside the membership settings page):
 - **Rules card** — two inputs side-by-side: cancellation notice (days), seat threshold (hours/month).
 - **Trial stay offer card** — toggle (Enabled/Disabled), percent input, months input. Greyed out when disabled.
 - **Retention offer card** — same shape.
-- Save bar at bottom.
-- Show approximate days: `≈ {durationMonths * 30} days` under the months input.
+- Save bar at bottom (PUT membership settings with the `billing_policy` block).
+- Show approximate days: `≈ {duration_months * 30} days` under the months input.
 
 ### 7. Edge Cases
 
@@ -204,7 +213,7 @@ Cancel button → confirmation dialog:
 | Used trial offer, converted to paid, later cancels | Trial slot used; paid slot still available. |
 | Admin disables an offer mid-cancellation | Banner CTA disappears immediately. Endpoint returns 404 if accept attempted. |
 | Admin changes percent 30→25 between request and accept | Accept uses current value at acceptance time (new coupon created). |
-| Reactivate during the 60-day window | Stripe `cancel_at: null`, DB cleared, offer slot preserved. |
+| Reactivate during the 60-day window | Stripe `cancel_at=None`, DB cleared, offer slot preserved. |
 | Customer downgrades plan during notice window | Allowed; downgrade applies at next period start, cancellation still fires on scheduled date. |
 | Refund during notice window | Out of band — Stripe support tools. Don't touch DB fields. |
 | Mass/bulk cancel | Not supported. Single-cancel only. |
@@ -212,7 +221,7 @@ Cancel button → confirmation dialog:
 
 ### 8. Audit Log Actions
 
-One row per mutation:
+One row per mutation (reuse the platform audit-log collection if one exists):
 
 | Action | When |
 |--------|------|
@@ -228,50 +237,49 @@ Each `after` payload should include effective values (scheduled date, expires da
 
 **Functional:**
 - Cancel + accept retention → scheduled date cleared, coupon present in Stripe, retention slot stamped
-- Cancel + accept retention + cancel again → second cancel returns `retentionOfferAvailable: false`
+- Cancel + accept retention + cancel again → second cancel returns `retention_offer_available: false`
 - Trial user accepts trial offer proactively (no cancellation) → succeeds
 - Paid user attempts trial offer endpoint → 400
 - Paid user attempts retention offer without cancellation → 400
 - Admin disables trial offer → trial user GET shows `offer.available: false`
 - Admin changes percent → next acceptance creates new coupon ID, old coupon still attached to prior acceptance
-- Reactivate clears scheduled date but `retentionOfferUsedAt` unchanged
+- Reactivate clears scheduled date but `retention_offer_used_at` unchanged
 
 **Edge / regression:**
-- Stripe `cancel_at` matches `scheduledCancellationDate` to within 1 second
+- Stripe `cancel_at` matches `scheduled_cancellation_date` to within 1 second
 - Audit log entries written for every mutation
 - Policy JSON fully-missing → defaults applied
 - Policy JSON with extra unknown keys → ignored, no validation error
-- Concurrent requests to accept-offer → second returns 409
+- Concurrent requests to accept-offer → second returns 409 (use a guarded `find_one_and_update` on the `{kind}_offer_used_at` field for atomicity)
 
 **Activity-seat (if used):**
 - User with 239 minutes → not billed
 - User with 240 minutes → billed
 - Owner with 0 minutes → still billed
-- Sum across multiple TimeEntries in same month aggregates correctly
+- Sum across multiple time_entries in same month aggregates correctly
 
 ### 10. File Map (typical)
 
 | Path | Purpose |
 |------|---------|
-| `packages/db/prisma/schema.prisma` | Subscription + PlatformConfig fields |
-| `packages/db/prisma/migrations/<ts>_subscription_retention/migration.sql` | Cancellation + 2 offer-slot fields |
-| `packages/db/prisma/migrations/<ts>_billing_policy/migration.sql` | PlatformConfig.billingPolicy JSON column |
-| `apps/api/src/lib/billing-policy.ts` | `getBillingPolicy()`, defaults, normalizer, `offerLabel()` |
-| `apps/api/src/routes/billing/index.ts` | `/subscription`, `/cancel`, `/reactivate`, `/retention-offer/accept`, `/seat-usage` |
-| `apps/api/src/routes/platform/config.ts` | PATCH schema includes billingPolicy |
-| `apps/web/src/pages/Billing.tsx` | Customer-facing banner + cancel dialog |
-| `apps/web/src/pages/platform/SiteSettings.tsx` | Admin "Billing Policy" tab |
-| `apps/web/src/layouts/AppLayout.tsx` | Sidebar link to the policy tab |
+| `backend/lib/billing_policy.py` | `get_billing_policy()`, defaults, normalizer, `offer_label()` |
+| `backend/routes/billing.py` | `/subscription`, `/cancel`, `/reactivate`, `/retention-offer/accept`, `/seat-usage` |
+| `backend/routes/admin_settings.py` | PUT membership settings includes `billing_policy` |
+| `backend/server.py` | Router registration (`billing_router` @ `/api`) |
+| `backend/auth.py` | Owner / admin auth dependencies |
+| `frontend/src/pages/Billing.js` | Customer-facing banner + cancel dialog |
+| `frontend/src/pages/admin/MembershipSettings.js` | Admin "Billing Policy" tab |
+| `frontend/src/services/api.js` | Shared axios client (JWT auto-attach) |
 
 ### 11. Defaults (recommended starting point)
 
-```js
-const DEFAULT_BILLING_POLICY = {
-  cancellationNoticeDays: 60,
-  seatMinHoursPerMonth: 4,
-  trialOffer:     { enabled: true, percentOff: 10, durationMonths: 2 },
-  retentionOffer: { enabled: true, percentOff: 30, durationMonths: 3 },
-};
+```python
+DEFAULT_BILLING_POLICY = {
+    "cancellation_notice_days": 60,
+    "seat_min_hours_per_month": 4,
+    "trial_offer":     { "enabled": True, "percent_off": 10, "duration_months": 2 },
+    "retention_offer": { "enabled": True, "percent_off": 30, "duration_months": 3 },
+}
 ```
 
 **Tuning advice:**
@@ -283,10 +291,10 @@ const DEFAULT_BILLING_POLICY = {
 
 ### 12. Compliance / Legal Hooks
 
-- Cancellation request must be acknowledged in writing (email) within 24 hours. Wire this off the audit log entry.
+- Cancellation request must be acknowledged in writing (email) within 24 hours. Wire this off the audit log entry — reuse the [email-template-system](../email-template-system/SPEC.md) with a `cancellation_ack` template key.
 - **US FTC Click-to-Cancel rule (2024)** requires cancellation to be at least as easy as signup. The cancel button is on the Billing page; if signup is shorter than the cancel dialog, consider removing the textarea requirement.
 - For EU customers, the notice period must be reasonable (case law generally permits 30 days; 60 is defensible for B2B).
-- Store the original cancellation reason verbatim in `cancelReason` — useful for renewal disputes.
+- Store the original cancellation reason verbatim in `cancel_reason` — useful for renewal disputes.
 - The Stripe `cancellation_details.comment` should mirror the customer's reason for the Stripe-side support record.
 
 ---
@@ -296,10 +304,9 @@ const DEFAULT_BILLING_POLICY = {
 | Field | Value |
 |-------|-------|
 | Category | Billing / retention / churn |
-| DB | Prisma/SQL — Subscription + PlatformConfig additions |
-| API | Node (apps/api), owner/admin-scoped |
-| Frontend | React (apps/web) |
+| Backend | FastAPI (async) + document store |
+| Frontend | React + shared axios client |
 | Payments | Stripe (`cancel_at` epoch + stable-ID coupons) |
-| Key concepts | Advance-notice window, two independent once-only offer slots (trial + paid), admin-editable policy JSON, reactivation preserves slot, optional activity-seat billing |
-| Bolts onto | [paid-subscription-system](../paid-subscription-system/SPEC.md) |
+| Key concepts | Advance-notice window, two independent once-only offer slots (trial + paid), admin-editable policy JSON on `platform_settings`, reactivation preserves slot, optional activity-seat billing |
+| Bolts onto | [paid-subscription-system](../paid-subscription-system/SPEC.md) (subscription state, settings, Stripe adapter) |
 | Compliance | FTC Click-to-Cancel (2024), EU notice-period reasonableness |
