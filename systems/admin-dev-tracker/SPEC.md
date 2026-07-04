@@ -115,6 +115,7 @@ Top → bottom:
 ### 6. Auto-save Behavior (no save button — non-negotiable)
 
 - **Checkbox click** → optimistic UI (flips instantly) + immediate `POST /stage`; 12px inline spinner replaces the checkbox while in flight; on error revert + error toast with the server message.
+- **Checkbox semantics** (proven in the reference implementation): the strip renders cumulative — reaching a stage fills all earlier checkboxes. Clicking an unchecked stage advances to it; clicking the *currently highest checked* stage steps back one (uncheck = previous stage, or backlog from WIP). Clicking `Pending action` never saves directly — it opens a modal requiring the blocking note first (server 400s without it).
 - **Pending-note / description edits** → debounced 800ms PATCH, "Saved ✓" micro-indicator fades in/out next to the field.
 - **Reorder (drag)** → PATCH sort_order on drop.
 - **Concurrency guard**: every mutation sends the row's `updated_at`; server returns 409 if stale → UI refetches the row and shows "Updated elsewhere — refreshed" info toast. Prevents two people (or a person + CI) silently overwriting each other.
@@ -159,3 +160,4 @@ If the repo keeps a traceability matrix file:
 | Composes with | `admin-portal-system` (chassis §8/§12); any CI traceability gate |
 | States | loading / empty / error / loaded on list + feed |
 | Origin | Sabanha Dev Tracker spec (generalized) |
+| Reference implementation | `fabiodemelo/sabanha` — API: `api/routes/devtracker.php` (PHP 8 + MySQL, single `saba_db`); UI: `frontend/src/admin/DevTracker.tsx` (React + Tailwind v4). Browser-verified: auto-save persistence, owner-only verify 403 + logged rejection, regression path. |
