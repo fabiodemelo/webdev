@@ -43,6 +43,7 @@ Think of these as **skills, but for things you build.** Three tiers:
 | System | Category | Stack | Spec |
 |--------|----------|-------|------|
 | Admin portal system (chassis) | Admin shell / design system | Express + TS + React + Tailwind v4 | [SPEC.md](systems/admin-portal-system/SPEC.md) |
+| Admin Dev Tracker | Admin / dev process | Any REST + SQL/doc store + React | [SPEC.md](systems/admin-dev-tracker/SPEC.md) |
 | Transactional email template system | Admin / email infra | FastAPI + doc store + email SDK + React | [SPEC.md](systems/email-template-system/SPEC.md) |
 | Coupon code system | Billing / discounts | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/coupon-code-system/SPEC.md) |
 | Paid subscription / membership system | Billing / subscriptions (full stack) | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/paid-subscription-system/SPEC.md) |

@@ -175,6 +175,7 @@ This portal is the chassis. Domain features install as blocks from `https://gith
    - `cancellation-retention-module` — notice-period cancellation + one-time retention offers
    - `support-ticket-system` — user/admin ticket threads
    - `personal-task-system` — tasks
+   - `admin-dev-tracker` — feature-stage tracker with owner-only verification + recommendations feed
    - `training-video-library` — curated onboarding videos
 2. **Ask the user which blocks to install** with this admin (multi-select). Present each with its one-line description from its SPEC.md header. Also ask for the brand accent color and product name if not yet known.
 3. For each selected block: read its full SPEC.md, implement it **on this portal's conventions** (tokens §1, primitives §2, guards §4, envelope §5, data-states §10), build its dedicated admin page, and repoint the corresponding sidebar link from the generic module page (§8) to it.
