@@ -26,6 +26,17 @@ Think of these as **skills, but for things you build.** Three tiers:
 
 ## Catalog
 
+### Skills (`skills/`)
+
+The full [jeffallan/claude-skills](https://github.com/jeffallan/claude-skills) collection (66 dev skills, MIT — see `skills/LICENSE-upstream`, sync state in `skills/UPSTREAM.md`) plus my own:
+
+| Skill | Purpose |
+|-------|---------|
+| **dmcode** | Dev workflow entrypoint: checks this hub + upstream for updates, asks which modules/blocks/skills the task needs, installs them, enforces delivery-gate |
+| **delivery-gate** | Mandatory gap hunt before any "done" claim: static scan → build/tests → click-through walkthrough → adversarial review → Gap Report |
+
+Install a skill: copy `skills/<name>/` to `~/.claude/skills/<name>/` (or `dmcode` does it for you).
+
 ### Blocks
 
 | Block | Category | Deps | Spec |
