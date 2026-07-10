@@ -62,6 +62,7 @@ Install a skill: copy `skills/<name>/` to `~/.claude/skills/<name>/` (or `dmcode
 | Personal task / to-do system | Productivity / tasks | FastAPI + MongoDB + React | [SPEC.md](systems/personal-task-system/SPEC.md) |
 | Training video library | Education / content | FastAPI + MongoDB + React + YouTube | [SPEC.md](systems/training-video-library/SPEC.md) |
 | Cancellation + retention module | Billing / retention / churn | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/cancellation-retention-module/SPEC.md) |
+| Software licensing + SDK system | Licensing / anti-piracy | Express + TS + MySQL + Ed25519 + React | [SPEC.md](systems/software-licensing-system/SPEC.md) |
 
 ### Playbooks
 
