@@ -8,6 +8,17 @@ Full internal helpdesk / support ticket system. Authenticated users open tickets
 - **A — Alta Apps (richer, this build):** PHP + MySQL + React admin UI (`tickets-ui`) + JWT mobile API + S3-style object storage + push (Expo/FCM). The feature-complete reference.
 - **B — Trados (simpler origin):** FastAPI + MongoDB + React. Minimal 3-status single-thread variant (see history) — a subset of this spec.
 
+> ## ⚠️ Integration target: demelos.com admin portal
+> This ticket system is **not a standalone app** — it must be **fully integrated into the demelos.com admin portal** (the [admin-portal-system](../admin-portal-system/SPEC.md) chassis: Express + TypeScript + MySQL + React), sharing that portal's auth/roles, layout/sidebar, design tokens, notification stack, and `uploads/` storage.
+>
+> The demelos admin already ships a native ticket module to build on/reconcile with:
+> - `backend/src/routes/tickets.ts` — Express/TS routes
+> - `frontend/src/pages/Tickets.tsx` + `tickets.css` — React admin UI
+> - `sql/02-tickets-v2.sql` — MySQL schema
+> - `uploads/tickets/<ticket_number>/` — attachment storage on disk
+>
+> When porting the Alta (PHP) feature set below, **fold it into that Express/TS module** — do not add a parallel PHP service. Match the portal's `requireAdmin()` gating, envelope helpers, and settings singleton. Reference DDL in [reference/schema.sql](reference/schema.sql) is the target-shape schema; align `02-tickets-v2.sql` to it.
+
 > **Related:** notifications reuse [email-template-system](../email-template-system/SPEC.md) (`new_ticket`, `update_ticket`, `private_ticket`, `support_reply` template keys + per-recipient `notifyOwner`).
 
 > **Stack-neutral:** field names below follow the MySQL reference. Substitute "user" / "tenant" / "company" for the target's noun. Map MySQL child tables onto embedded sub-documents if using a document store.
@@ -293,4 +304,5 @@ Child tables (full DDL in the .sql file):
 | Beyond the simple variant | ticket numbers, priorities, departments, configurable color-coded statuses, assignees, members/watchers, time tracking, activity log, multiple attachments, push + in-app notifications, private tickets, due-date/overdue reminders, stats, visibility levels, dual admin+mobile API |
 | Multi-tenant | Role-based visibility levels + private tickets |
 | Depends on | [email-template-system](../email-template-system/SPEC.md) — `new_ticket` / `update_ticket` / `private_ticket` / `support_reply` |
+| **Integration target** | **Must be fully integrated into the demelos.com admin portal ([admin-portal-system](../admin-portal-system/SPEC.md), Express/TS/MySQL/React) — fold into its existing `tickets.ts` / `Tickets.tsx` / `02-tickets-v2.sql`, not a standalone service** |
 | Source build | Alta Apps portal (`app.altajan.com`) — PHP/MySQL helpdesk |
