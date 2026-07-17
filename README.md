@@ -64,6 +64,7 @@ Install a skill: copy `skills/<name>/` to `~/.claude/skills/<name>/` (or `dmcode
 | Cancellation + retention module | Billing / retention / churn | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/cancellation-retention-module/SPEC.md) |
 | Software licensing + SDK system | Licensing / anti-piracy | Express + TS + MySQL + Ed25519 + React | [SPEC.md](systems/software-licensing-system/SPEC.md) |
 | CDN / object storage integration | Infrastructure / file storage | DO Spaces (S3) + PHP/Node/Python + MySQL | [SPEC.md](systems/cdn-object-storage/SPEC.md) |
+| Vault module (biz info + credential manager) | Admin / company records / secrets | PHP + MySQL + vanilla JS (stack-neutral spec) | [SPEC.md](systems/vault-module/SPEC.md) |
 
 ### Playbooks
 
