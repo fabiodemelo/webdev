@@ -70,7 +70,7 @@ Install a skill: copy `skills/<name>/` to `~/.claude/skills/<name>/` (or `dmcode
 
 | Playbook | Category | Stack | Spec |
 |----------|----------|-------|------|
-| Content + SEO | Content strategy + SEO + GEO | Stack-flexible (ref: Astro/Next + Zod) | [SPEC.md](playbooks/content-seo/SPEC.md) |
+| Content + SEO | Content strategy + SEO + GEO — moved to own repo | Stack-flexible | [MASTER-SEO-STRATEGY](https://github.com/fabiodemelo/MASTER-SEO-STRATEGY) |
 
 ## Stack assumptions
 
