@@ -6,7 +6,7 @@ Full internal helpdesk / support ticket system. Authenticated users open tickets
 
 **Reference implementations:**
 - **A — Alta Apps (richer, this build):** PHP + MySQL + React admin UI (`tickets-ui`) + JWT mobile API + S3-style object storage + push (Expo/FCM). The feature-complete reference.
-- **B — Trados (simpler origin):** FastAPI + MongoDB + React. Minimal 3-status single-thread variant (see history) — a subset of this spec.
+- **B — Trados (simpler origin):** FastAPI + MySQL + React. Minimal 3-status single-thread variant (see history) — a subset of this spec.
 
 > ## ⚠️ Integration target: demelos.com admin portal
 > This ticket system is **not a standalone app** — it must be **fully integrated into the demelos.com admin portal** (the [admin-portal-system](../admin-portal-system/SPEC.md) chassis: Express + TypeScript + MySQL + React), sharing that portal's auth/roles, layout/sidebar, design tokens, notification stack, and `uploads/` storage.
@@ -21,7 +21,7 @@ Full internal helpdesk / support ticket system. Authenticated users open tickets
 
 > **Related:** notifications reuse [email-template-system](../email-template-system/SPEC.md) (`new_ticket`, `update_ticket`, `private_ticket`, `support_reply` template keys + per-recipient `notifyOwner`).
 
-> **Stack-neutral:** field names below follow the MySQL reference. Substitute "user" / "tenant" / "company" for the target's noun. Map MySQL child tables onto embedded sub-documents if using a document store.
+> **Stack-neutral:** field names below follow the MySQL reference. Substitute "user" / "tenant" / "company" for the target's noun.
 
 ---
 
@@ -45,7 +45,7 @@ Built-result screenshots from the source app — visual guideline for re-impleme
 You are given a task to build a **support ticket / helpdesk system** in the codebase.
 
 Reference stack (map onto project equivalents):
-- **Backend:** PHP + MySQL (reference A) or FastAPI + document store (reference B). A data-access class exposes the public interface in §9.
+- **Backend:** PHP + MySQL (reference A) or FastAPI + MySQL (reference B). A data-access class exposes the public interface in §9.
 - **Frontend:** React admin UI + (optional) a mobile/JWT client. Shared API client, toast notifications.
 - **File storage:** S3-compatible object storage; DB stores attachment metadata + `object_key`, presigned URLs generated on read.
 - **Notifications:** existing email template system + in-app notifications + push tokens.
@@ -67,7 +67,7 @@ Each ticket has a sequential **ticket number**, a single chronological **comment
 | Child stores | `ticket_assignees`, `ticket_members`, `ticket_comments`, `ticket_time_entries`, `ticket_activity_log`, `ticket_attachments`. Loaded in one batched pass per list (avoid N+1). |
 | Settings store | `ticket_settings` — admin-editable statuses, priorities, departments with `label`, `color`, `sort_order`. Seeded with defaults if empty. |
 | Object storage | S3-style. Attachment bytes live there; DB holds metadata + `object_key`. Presigned URL on read (`attachment_url`). |
-| Filter translator | MongoDB-style filter syntax (`$in`/`$nin`/`$or`/`$and`/`$text`) → SQL WHERE + JOINs. Lets one query layer serve both reference stacks. |
+| Filter translator | Portable filter-array DSL (`$in`/`$nin`/`$or`/`$and`/`$text`) → SQL WHERE + JOINs. Lets one query layer serve both reference stacks. |
 | Notification hooks | Email templates + in-app notifications + push (`push_send_to_users`). Fire on create / assign / member-add / update / status-change. |
 | Preference store | `ticket_user_prefs` — one JSON row per user holding their dashboard filters, scope and layout. Written on every change (debounced), read on load, so a user's view follows them to any browser. |
 | Efficiency scorer | Replays each closed ticket's `reassigned` activity rows to credit elapsed time to whoever was assigned during each segment, then bands the per-user average. |
@@ -378,7 +378,7 @@ Scores how long closed tickets stayed assigned to each person. The point is beha
 | Field | Value |
 |-------|-------|
 | Category | Support / helpdesk / ITSM |
-| Backend | PHP + MySQL (ref A) or FastAPI + document store (ref B) |
+| Backend | PHP + MySQL (ref A) or FastAPI + MySQL (ref B) |
 | Frontend | React admin UI + JWT mobile client |
 | Storage | S3-compatible object storage (presigned reads) |
 | Entities | tickets + assignees + members + comments + time entries + activity log + attachments + settings + per-user preferences |

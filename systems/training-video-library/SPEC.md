@@ -2,11 +2,11 @@
 
 Training/educational video library backed by an external video host (YouTube in reference; generalizes to any oEmbed/iframe-friendly provider). Short embedded videos in a manually-ordered grid, with a **two-tier visibility system**: platform videos (super-admin, cross-tenant subject to opt-in) and tenant videos (tenant admin, tenant-only). Public viewers see active platform videos only.
 
-**Type:** full feature subsystem (single collection + two-tier visibility + embed adapter + admin CRUD + UI).
+**Type:** full feature subsystem (single table + two-tier visibility + embed adapter + admin CRUD + UI).
 
-**Reference stack:** FastAPI (Python) + MongoDB-style doc store (single collection `educational_videos`) + React + YouTube embeds.
+**Reference stack:** FastAPI (Python) + MySQL (single table `educational_videos`) + React + YouTube embeds.
 
-> **Related:** reads `settings.show_platform_videos` on the tenant document (tenant-settings UI, out of scope). No email/notifications.
+> **Related:** reads `settings.show_platform_videos` on the tenants table (tenant-settings UI, out of scope). No email/notifications.
 
 ---
 
@@ -21,7 +21,7 @@ You are given a task to build a **training video library** in the codebase.
 Reference stack (map onto equivalents):
 - **Frontend:** React (function components + hooks), plain forms, native `<iframe>` embed, toast notifications.
 - **Backend:** Python + FastAPI. Two routers: public router (`/videos`, optional auth) + admin router (`/admin/videos`, requires admin).
-- **Database:** document store (MongoDB-style). One collection `educational_videos`.
+- **Database:** MySQL. One table `educational_videos`.
 - **Video provider:** YouTube (embed `https://www.youtube.com/embed/<id>`; thumbnail `https://img.youtube.com/vi/<id>/mqdefault.jpg`). Vimeo / Wistia / Loom / self-hosted MP4 fit by replacing the URL-to-embed adapter.
 
 ### 1. Overview
@@ -36,27 +36,32 @@ End users see a curated library mixing the two tiers based on the tenant's prefe
 
 | Component | Responsibility |
 |-----------|----------------|
-| Video store | Single collection `educational_videos`. Null/missing `tenant_id` marks a platform video; any other value marks a tenant video. |
-| Tenant opt-in flag | Boolean on tenant doc (`settings.show_platform_videos`; reference uses `settings.show_super_admin_videos`). When false, platform videos hidden from this tenant's users. |
+| Video store | Single table `educational_videos`. NULL `tenant_id` marks a platform video; any other value marks a tenant video. |
+| Tenant opt-in flag | Boolean on tenants table (`settings.show_platform_videos`; reference uses `settings.show_super_admin_videos`). When false, platform videos hidden from this tenant's users. |
 | Embed adapter | Pure client-side function converting a provider URL → embed URL + thumbnail URL. Easy to replace per provider. |
 | Tenant scope helper | Existing `build_tenant_query` — super-admins see all platform videos; tenant admins see only theirs. |
 | Admin CRUD | Single endpoint per HTTP verb; manual ordering by writing an integer to `display_order`. |
 
-### 3. Domain Model — `educational_videos` collection
+### 3. Domain Model — `educational_videos` table
 
-| Field | Description |
-|-------|-------------|
-| `_id` | Video id. |
-| `title` | Required. |
-| `provider_url` | Pasted URL from the host (e.g. `https://www.youtube.com/watch?v=ABC`). Stored verbatim; conversion to embed/thumbnail at render time. |
-| `description` | Optional short blurb beneath the embed. |
-| `display_order` | Integer; ascending sort. New videos default to `max(existing within scope)+1`. |
-| `is_active` | Bool. Inactive hidden from end users but visible in admin list. |
-| `tenant_id` | Null/missing for platform videos; tenant id for tenant videos. |
-| `created_by` | Author admin's user_id. |
-| `created_at` / `updated_at` | Audit. |
+```sql
+CREATE TABLE educational_videos (
+  id            INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- Video id.
+  title         VARCHAR(255) NOT NULL,                            -- Required.
+  provider_url  VARCHAR(1024) NOT NULL,                           -- Pasted URL from the host (e.g. https://www.youtube.com/watch?v=ABC). Stored verbatim; conversion to embed/thumbnail at render time.
+  description   TEXT NULL,                                        -- Optional short blurb beneath the embed.
+  display_order INT NOT NULL DEFAULT 0,                           -- Ascending sort. New videos default to max(existing within scope)+1.
+  is_active     TINYINT(1) NOT NULL DEFAULT 1,                    -- Inactive hidden from end users but visible in admin list.
+  tenant_id     INT UNSIGNED NULL,                                -- NULL for platform videos; tenant id for tenant videos.
+  created_by    INT NOT NULL,                                     -- Author admin's user_id.
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,      -- Audit.
+  updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- Audit.
+  KEY idx_tenant_order (tenant_id, display_order),
+  KEY idx_tenant_active_order (tenant_id, is_active, display_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
 
-> Reference stores the field as `youtube_url`. For provider-neutrality the spec uses `provider_url`. Keep the legacy name for zero-migration deployment.
+> Reference stores the field as `youtube_url`. For provider-neutrality the spec uses `provider_url`. Keep the legacy column name (`youtube_url VARCHAR(1024)`) for zero-migration deployment.
 
 ### 4. Two-Tier Visibility Model
 
@@ -64,22 +69,22 @@ End users see a curated library mixing the two tiers based on the tenant's prefe
 ```python
 if not current_user:
     # Public viewer — only active platform videos.
-    return active_videos_where(tenant_id IS NULL)
+    return query("WHERE tenant_id IS NULL AND is_active = 1 ORDER BY display_order ASC")
 
 if current_user.is_super_admin:
     # Super-admin browsing public catalog — only platform videos.
-    return active_videos_where(tenant_id IS NULL)
+    return query("WHERE tenant_id IS NULL AND is_active = 1 ORDER BY display_order ASC")
 
 if current_user.tenant_id:
     tenant = load_tenant(current_user.tenant_id)
     show_platform = tenant.settings.show_platform_videos == True
-    conditions  = [ tenant_id == current_user.tenant_id ]
     if show_platform:
-        conditions.append( tenant_id IS NULL )
-    return active_videos_where( $or: conditions )
+        # Tenant's own videos OR platform videos.
+        return query("WHERE (tenant_id = ? OR tenant_id IS NULL) AND is_active = 1 ORDER BY display_order ASC", current_user.tenant_id)
+    return query("WHERE tenant_id = ? AND is_active = 1 ORDER BY display_order ASC", current_user.tenant_id)
 
 # Authenticated user with no tenant — only platform videos.
-return active_videos_where(tenant_id IS NULL)
+return query("WHERE tenant_id IS NULL AND is_active = 1 ORDER BY display_order ASC")
 ```
 All branches return videos sorted ascending by `display_order`. `is_active` filtering happens server-side for the public endpoint; admins read through a separate endpoint that bypasses `is_active`.
 
@@ -135,7 +140,7 @@ Storing the original provider URL (not a parsed id) keeps data portable across p
 
 ### 8. Tenant Opt-In for Platform Videos
 
-Per-tenant boolean on the tenant doc under `settings` (e.g. `settings.show_platform_videos`). True → tenant's users see platform videos mixed into their library; false → only their tenant's videos.
+Per-tenant boolean on the tenants table under `settings` (a column or its settings JSON, e.g. `settings.show_platform_videos`). True → tenant's users see platform videos mixed into their library; false → only their tenant's videos.
 - Default value is a product decision: off-by-default protects against unexpected content; on-by-default maximizes discovery.
 - Tenant admin toggles it from the tenant-settings page (existing field, not part of this spec).
 - Flag only affects READS; tenant admins can never create/modify platform videos regardless of the flag.
@@ -184,8 +189,8 @@ Per-tenant boolean on the tenant doc under `settings` (e.g. `settings.show_platf
 
 ### Reproduction Checklist
 
-1. Create `educational_videos`. Index `{ tenant_id, display_order }` for public read, `{ tenant_id, is_active, display_order }` for active filter.
-2. Add/reuse the tenant `settings.show_platform_videos` boolean on the tenant doc.
+1. Create `educational_videos`. Add `KEY (tenant_id, display_order)` for public read, `KEY (tenant_id, is_active, display_order)` for active filter.
+2. Add/reuse the tenant `settings.show_platform_videos` boolean on the tenants table (a column or its settings JSON).
 3. Implement `GET /videos` with optional auth + visibility branches (§4.1).
 4. Implement `GET /admin/videos` (auth required) with the tenant scope helper, including inactive entries.
 5. Implement `POST /admin/videos`: stamp `tenant_id` from auth (null for super-admin), default `display_order = max+1` within scope, default `is_active = true`.
@@ -204,10 +209,10 @@ Per-tenant boolean on the tenant doc under `settings` (e.g. `settings.show_platf
 | Field | Value |
 |-------|-------|
 | Category | Education / training / content |
-| Backend | FastAPI (async) + single doc collection |
+| Backend | FastAPI (async) + single MySQL table |
 | Frontend | React + native iframe embeds |
 | Provider | YouTube (swap embed adapter for Vimeo/Loom/Wistia/MP4) |
 | Visibility | Two-tier: platform (cross-tenant, opt-in) + tenant-only |
 | Ordering | Manual `display_order` integer |
 | Multi-tenant | Yes — tenant scope helper + per-tenant opt-in flag |
-| Reads | `settings.show_platform_videos` on tenant doc |
+| Reads | `settings.show_platform_videos` on tenants table |

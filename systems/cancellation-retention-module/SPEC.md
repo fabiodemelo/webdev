@@ -2,9 +2,9 @@
 
 SaaS subscription cancellation flow with: configurable advance-notice window, one-time stay/retention offers (status-aware: trial vs paid), once-only enforcement per customer, platform-admin-editable policy (no code changes to tune), and optional activity-based seat billing.
 
-**Type:** feature subsystem (subscription doc additions + policy config + API + Stripe wiring + frontend UX). Bolts onto an existing subscription product.
+**Type:** feature subsystem (subscription column additions + policy config + API + Stripe wiring + frontend UX). Bolts onto an existing subscription product.
 
-**Reference stack:** FastAPI (Python) + MongoDB-style doc store + React + Stripe. Replace `[Brand]` / `[brand]` and Stripe references as needed.
+**Reference stack:** FastAPI (Python) + MySQL + React + Stripe. Replace `[Brand]` / `[brand]` and Stripe references as needed.
 
 > **Related:** extends an existing subscription/billing system — see [paid-subscription-system](../paid-subscription-system/SPEC.md). This module adds the cancel/retain layer on top, reusing its `membership_plans`, subscription state block, and Stripe adapter.
 
@@ -20,7 +20,7 @@ You are given a task to build a **cancellation + retention module** for a SaaS s
 
 Reference stack (map onto equivalents):
 - **Backend:** Python + FastAPI, async handlers, Pydantic models. Routes restricted to subscription owner (or admin where noted) via an auth dependency returning `sub` (user id), tenant/subscriber id, and role.
-- **Database:** document store (MongoDB-style). Cancellation + offer fields added to the existing subscription state block; policy lives on the `platform_settings` singleton.
+- **Database:** MySQL. Cancellation + offer columns added to the existing `subscriptions` table; policy lives on the single-row `platform_settings` table.
 - **Frontend:** React (function components + hooks), shared API client with JWT auto-attach, toast notifications.
 - **Payments:** Stripe (Checkout already wired; this module adds cancel/coupon ops).
 
@@ -40,26 +40,38 @@ Reference stack (map onto equivalents):
 
 ### 2. Data Model — subscription state additions
 
-These fields are added to the subscriber's **subscription state block** (the same embedded block from [paid-subscription-system](../paid-subscription-system/SPEC.md) §3.3). MongoDB has no fixed schema — just write the fields:
+These columns are added to the subscriber's **`subscriptions` table** (the same table backing the state block from [paid-subscription-system](../paid-subscription-system/SPEC.md) §3.3). Add them with an `ALTER TABLE` (InnoDB / utf8mb4 assumed):
 
-| Field | Type | Description |
+| Column | Type | Description |
 |-------|------|-------------|
-| `cancel_at_period_end` | bool | Default false. Mirrors Stripe's flag. |
-| `cancel_reason` | str\|null | Stored verbatim from the cancel request. |
-| `cancellation_requested_at` | datetime\|null | Set on cancel; cleared on reactivate/accept-offer. |
-| `scheduled_cancellation_date` | datetime\|null | `now + notice_days`. |
-| `retention_offer_used_at` | datetime\|null | One-time PAID retention slot. |
-| `retention_offer_expires_at` | datetime\|null | When the paid discount stops applying. |
-| `trial_offer_used_at` | datetime\|null | One-time TRIAL stay slot (independent of paid). |
-| `trial_offer_expires_at` | datetime\|null | When the trial discount stops applying. |
+| `cancel_at_period_end` | TINYINT(1) NOT NULL DEFAULT 0 | Default false. Mirrors Stripe's flag. |
+| `cancel_reason` | VARCHAR(500) NULL | Stored verbatim from the cancel request. |
+| `cancellation_requested_at` | DATETIME NULL | Set on cancel; cleared on reactivate/accept-offer. |
+| `scheduled_cancellation_date` | DATETIME NULL | `now + notice_days`. |
+| `retention_offer_used_at` | DATETIME NULL | One-time PAID retention slot. |
+| `retention_offer_expires_at` | DATETIME NULL | When the paid discount stops applying. |
+| `trial_offer_used_at` | DATETIME NULL | One-time TRIAL stay slot (independent of paid). |
+| `trial_offer_expires_at` | DATETIME NULL | When the trial discount stops applying. |
+
+```sql
+ALTER TABLE subscriptions
+  ADD COLUMN cancel_at_period_end        TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN cancel_reason               VARCHAR(500) NULL,
+  ADD COLUMN cancellation_requested_at   DATETIME NULL,
+  ADD COLUMN scheduled_cancellation_date DATETIME NULL,
+  ADD COLUMN retention_offer_used_at     DATETIME NULL,
+  ADD COLUMN retention_offer_expires_at  DATETIME NULL,
+  ADD COLUMN trial_offer_used_at         DATETIME NULL,
+  ADD COLUMN trial_offer_expires_at      DATETIME NULL;
+```
 
 **Why two independent offer slots:** a single customer can be incentivized once during trial (10%/60d) AND once when they later try to cancel as a paid customer (30%/3mo). Sharing a single flag would lock them out of the second.
 
-Suggested index (for ops/reporting on pending cancellations): `{ subscription_status, scheduled_cancellation_date }`.
+Suggested index (for ops/reporting on pending cancellations): `CREATE INDEX idx_subs_status_sched ON subscriptions (subscription_status, scheduled_cancellation_date);`
 
 ### 3. Platform Policy (admin-editable JSON)
 
-Stored on the `platform_settings` singleton under a `billing_policy` key (reuse the settings doc from paid-subscription-system §3.5). Loaded on every cancel / accept-offer / seat-usage request.
+Stored on the single-row `platform_settings` table in a JSON `billing_policy` column (reuse the settings row from paid-subscription-system §3.5). Note: `platform_settings` is a single-row (key/value style) table; the policy is one JSON column on it. Loaded on every cancel / accept-offer / seat-usage request.
 
 ```json
 {
@@ -118,7 +130,7 @@ Router prefix `/billing`, mounted under global `/api`. All routes restricted to 
 1. Load `policy.cancellation_notice_days`.
 2. Compute `scheduled_date = now + timedelta(days=notice_days)`.
 3. Stripe: `stripe.Subscription.modify(id, cancel_at=int(scheduled_date.timestamp()), cancellation_details={"feedback": "other", "comment": reason})`. Use `cancel_at` (epoch seconds), NOT `cancel_at_period_end`, so the date precisely matches the policy.
-4. DB `$set`: `cancellation_requested_at=now, scheduled_cancellation_date=scheduled_date, cancel_reason=reason, cancel_at_period_end=True`.
+4. DB `UPDATE subscriptions SET cancellation_requested_at=now, scheduled_cancellation_date=scheduled_date, cancel_reason=reason, cancel_at_period_end=1 WHERE id=...`.
 5. Audit log: `action="subscription.cancel"`, after payload includes scheduled date.
 
 Response: `{ subscription, scheduled_cancellation_date, retention_offer_available: true }`.
@@ -133,30 +145,26 @@ Response: `{ subscription, scheduled_cancellation_date, retention_offer_availabl
 7. Compute `expires_at = now + relativedelta(months=offer_cfg["duration_months"])`.
 8. Stripe coupon: stable ID `[brand]-{trial-stay|retention}-{percent_off}off-{duration_months}mo`. Retrieve, fall back to create with `percent_off, duration="repeating", duration_in_months`.
 9. Stripe subscription: `modify(id, cancel_at=None, cancel_at_period_end=False, coupon=coupon_id)`.
-10. DB: clear cancellation fields, `$set {kind}_offer_used_at=now, {kind}_offer_expires_at=expires_at`.
+10. DB: atomically claim the slot with `UPDATE subscriptions SET {kind}_offer_used_at=now, {kind}_offer_expires_at=expires_at, cancel_at_period_end=0, cancel_reason=NULL, cancellation_requested_at=NULL, scheduled_cancellation_date=NULL WHERE id=... AND {kind}_offer_used_at IS NULL` — must affect exactly 1 row (else **409**, offer already used).
 11. Audit log: `subscription.trial-stay-accept` or `subscription.retention-accept`.
 
 Response: `{ subscription, offer_kind: "trial", expires_at }`.
 
 **4.4 `POST /api/billing/reactivate`** (owner) — rescinds an open cancellation WITHOUT consuming the offer slot:
 - Stripe: `modify(id, cancel_at=None, cancel_at_period_end=False)`.
-- DB `$set`: `cancel_at_period_end=False, cancel_reason=None, cancellation_requested_at=None, scheduled_cancellation_date=None`. Leave `{kind}_offer_used_at` untouched.
+- DB `UPDATE subscriptions SET cancel_at_period_end=0, cancel_reason=NULL, cancellation_requested_at=NULL, scheduled_cancellation_date=NULL WHERE id=...`. Leave `{kind}_offer_used_at` untouched.
 - Audit: `subscription.reactivate`.
 
-**4.5 `GET /api/billing/seat-usage?year=YYYY&month=MM`** (owner / admin) — optional. Billable seat count from a `time_entries` collection (clock-in/out docs), using the policy hour threshold. MongoDB aggregation:
-```python
-pipeline = [
-  { "$match": {
-      "company_id": company_id,
-      "clock_out_at": { "$ne": None },
-      "clock_in_at": { "$gte": month_start, "$lt": month_end },
-  }},
-  { "$group": {
-      "_id": "$user_id",
-      "secs": { "$sum": { "$divide": [
-          { "$subtract": ["$clock_out_at", "$clock_in_at"] }, 1000 ] } },  # ms → secs
-  }},
-]
+**4.5 `GET /api/billing/seat-usage?year=YYYY&month=MM`** (owner / admin) — optional. Billable seat count from a `time_entries` table (clock-in/out rows), using the policy hour threshold. MySQL query:
+```sql
+SELECT user_id,
+       SUM(TIMESTAMPDIFF(SECOND, clock_in_at, clock_out_at)) AS secs
+FROM time_entries
+WHERE company_id = :company_id
+  AND clock_out_at IS NOT NULL
+  AND clock_in_at >= :month_start
+  AND clock_in_at <  :month_end
+GROUP BY user_id;
 ```
 Count users with `secs / 60 >= policy.seat_min_hours_per_month * 60`. Owner seat always counted.
 Response: `{ year, month, min_billable_hours_per_month, rule, billable_seats, total_active_users, non_billable_users }`.
@@ -221,7 +229,7 @@ Cancel button → confirmation dialog:
 
 ### 8. Audit Log Actions
 
-One row per mutation (reuse the platform audit-log collection if one exists):
+One row per mutation (reuse the platform audit-log table if one exists):
 
 | Action | When |
 |--------|------|
@@ -250,7 +258,7 @@ Each `after` payload should include effective values (scheduled date, expires da
 - Audit log entries written for every mutation
 - Policy JSON fully-missing → defaults applied
 - Policy JSON with extra unknown keys → ignored, no validation error
-- Concurrent requests to accept-offer → second returns 409 (use a guarded `find_one_and_update` on the `{kind}_offer_used_at` field for atomicity)
+- Concurrent requests to accept-offer → second returns 409 (use an atomic `UPDATE subscriptions SET {kind}_offer_used_at=now, ... WHERE id=... AND {kind}_offer_used_at IS NULL`; the winning statement affects 1 row, the loser affects 0 → 409)
 
 **Activity-seat (if used):**
 - User with 239 minutes → not billed
@@ -304,7 +312,7 @@ DEFAULT_BILLING_POLICY = {
 | Field | Value |
 |-------|-------|
 | Category | Billing / retention / churn |
-| Backend | FastAPI (async) + document store |
+| Backend | FastAPI (async) + MySQL |
 | Frontend | React + shared axios client |
 | Payments | Stripe (`cancel_at` epoch + stable-ID coupons) |
 | Key concepts | Advance-notice window, two independent once-only offer slots (trial + paid), admin-editable policy JSON on `platform_settings`, reactivation preserves slot, optional activity-seat billing |

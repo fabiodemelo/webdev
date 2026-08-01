@@ -30,11 +30,11 @@ Target stack (reference — map onto equivalents if the project differs):
 - **Frontend:** React (function components + hooks), lightweight SVG icon set, toast notifications, no rich-text editor.
 - **HTTP:** shared API client with auth token injection.
 - **Backend:** Python + FastAPI router, async handlers, admin-only auth dependency.
-- **Database:** document store (MongoDB-style). One collection for frame + per-template overrides, keyed by template key.
+- **Database:** MySQL. One table (`email_template_overrides`) for frame + per-template overrides, keyed by template key.
 - **Email delivery:** transactional provider SDK (e.g. SendGrid) with API key from env; supports From, Reply-To, BCC, HTML body.
-- **Logging:** separate collection recording every send attempt.
+- **Logging:** separate `email_log` table recording every send attempt.
 
-If the project lacks any of these, set them up first or substitute the project's equivalent (e.g. SQL table instead of document collection, Node/Express instead of FastAPI).
+If the project lacks any of these, set them up first or substitute the project's equivalent (e.g. a different relational database instead of MySQL, Node/Express instead of FastAPI).
 
 ### 1. Architecture
 
@@ -68,25 +68,41 @@ Both ship with code-defined defaults. Admin edits stored as DB overrides; reset 
 | `body_html` | Default inner body HTML. May contain tags. Does NOT include frame. |
 | `available_tags` | Valid tags = template-specific tags + shared global tags. |
 
-**Override document (DB — stored only when customized). Collection keyed by `template_key`. Frame stored under reserved key e.g. `"_email_frame"`:**
+**Override row (DB — stored only when customized). MySQL table `email_template_overrides` keyed by `template_key`. Frame stored under reserved key e.g. `"_email_frame"`:**
 
 | Field | Description |
 |-------|-------------|
 | `template_key` | Matches a default key, or reserved frame key. |
 | `subject` / `body_html` | Overridden content (content templates). |
-| `body_html` | Overridden frame HTML (frame doc). Must contain `[email_content]`. |
-| `from_email` / `reply_to_email` / `bcc_emails` | Frame doc only. Global send settings, may contain tags. BCC comma-separated. |
+| `body_html` | Overridden frame HTML (frame row). Must contain `[email_content]`. |
+| `from_email` / `reply_to_email` / `bcc_emails` | Frame row only. Global send settings, may contain tags. BCC comma-separated. |
 | `updated_at` / `updated_by` | Audit metadata. |
+
+```sql
+CREATE TABLE email_template_overrides (
+  template_key    VARCHAR(191) PRIMARY KEY,   -- default key, or reserved frame key `_email_frame`
+  subject         TEXT NULL,
+  body_html       MEDIUMTEXT NULL,
+  from_email      VARCHAR(255) NULL,          -- frame row only
+  reply_to_email  VARCHAR(255) NULL,          -- frame row only
+  bcc_emails      VARCHAR(1024) NULL,         -- frame row only, comma-separated
+  updated_at      DATETIME NOT NULL,
+  updated_by      VARCHAR(191) NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
 
 **Merge rule (on read):**
 ```python
-if key in overrides:
-    merged = { **default, **override }
+override_row = db.query(
+    "SELECT * FROM email_template_overrides WHERE template_key = ?", key
+)  # None if absent
+if override_row:
+    merged = { **default, **override_row_nonnull }  # only non-null override columns win
     merged["is_customized"] = True
 else:
     merged = { **default, "is_customized": False }
 ```
-Reset = delete the override doc → next read returns pure default.
+Reset = `DELETE FROM email_template_overrides WHERE template_key = ?` → next read returns pure default.
 
 ### 3. Tag / Placeholder System
 
@@ -141,7 +157,7 @@ Centered fixed-width container, logo header, light rounded content panel contain
 </div>
 ```
 
-**Frame email settings** (attached to frame doc, applied to every send, each may contain tags):
+**Frame email settings** (attached to frame row, applied to every send, each may contain tags):
 
 | Field | Description |
 |-------|-------------|
@@ -152,7 +168,7 @@ Centered fixed-width container, logo header, light rounded content panel contain
 ### 5. Rendering Engine & Caching
 
 - Universal send function: `(template_key, to_email, replacements, tenant_id, email_type)` → full resolve→wrap→send pipeline.
-- Frame doc cached in-process after first load (avoid DB hit per send).
+- Frame row cached in-process after first load (avoid DB hit per send).
 - Cache invalidated explicitly whenever frame is saved or reset.
 - Provider call runs off the event loop with ~30s timeout (slow provider can't hang the request).
 - Every attempt logged: recipient, subject, type, status, provider status code, error message, timestamp.
@@ -235,14 +251,14 @@ Deliberate: raw HTML editor keeps full control over email-safe inline-styled HTM
 
 1. Define default template registry in code (key, title, description, category, subject, body_html, available_tags).
 2. Define default frame HTML with required `[email_content]` + `[year]`; choose global tag names.
-3. Create one DB collection for overrides keyed by template_key + reserved frame key.
+3. Create one MySQL table (`email_template_overrides`) for overrides keyed by template_key + reserved frame key.
 4. Implement merge-over-defaults read + delete-to-reset semantics.
 5. Build tenant/global-tag context resolver with safe fallbacks.
 6. Build universal send function: resolve tags → wrap in frame → resolve frame tags → resolve send settings → dispatch → log.
 7. Add in-process frame caching with explicit invalidation on save/reset.
 8. Build admin UI: info box, collapsible frame editor (email settings + preview), filters, per-template accordion editor with live preview + click-to-copy chips.
 9. Gate all endpoints behind admin role.
-10. Add send-attempt log collection.
+10. Add send-attempt log table (`email_log`).
 
 ---
 
@@ -251,7 +267,7 @@ Deliberate: raw HTML editor keeps full control over email-safe inline-styled HTM
 | Field | Value |
 |-------|-------|
 | Category | Admin / transactional email infrastructure |
-| Backend | FastAPI (async) + document store + transactional email SDK |
+| Backend | FastAPI (async) + MySQL + transactional email SDK |
 | Frontend | React + hooks + toasts, raw-HTML editor (no WYSIWYG) |
 | Key concept | Frame + content layers, code defaults + DB overrides, `[tag]` resolution at send time |
 | Multi-tenant | Yes — global tags resolve per tenant context |

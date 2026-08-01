@@ -4,7 +4,7 @@ Super-admin financial analytics suite for a multi-tenant SaaS: MRR/ARR overview,
 
 **Type:** medium full-feature subsystem (analytics API + 5 admin pages + shared tab nav + CSV export + dunning/receipt emails).
 
-**Reference stack:** FastAPI (Python) + MongoDB-style doc store + React + Tailwind + lucide-react icons + Stripe (Balance, Invoices). No chart library — all charts are CSS bar charts.
+**Reference stack:** FastAPI (Python) + MySQL + React + Tailwind + lucide-react icons + Stripe (Balance, Invoices). No chart library — all charts are CSS bar charts.
 
 > **Related:** [paid-subscription-system](../paid-subscription-system/SPEC.md) owns the data this dashboard reads: plans, checkout, the webhook reconciler that maintains `subscription_status` / `is_paid` / `payment_retry_count` / `grace_period_ends` on each subscriber, and the `payment_transactions` ledger. Build that first (or an equivalent). This spec includes the webhook dunning-state logic it depends on (§7) so it can stand alone if needed.
 
@@ -21,7 +21,7 @@ You are given a task to build a **financial dashboard with forecast and reports*
 Reference stack (map onto project equivalents if different):
 - **Frontend:** React (function components + hooks), react-router, Tailwind, lucide-react, toast notifications (sonner). No charting library — bar charts are plain divs with percentage widths.
 - **Backend:** Python + FastAPI, async handlers. One admin router, super-admin gated on every endpoint.
-- **Database:** document store (MongoDB-style). Reads: subscriber docs (`companies`), `membership_plans`, `payment_transactions`, `platform_settings`. Writes: dunning/grace fields on subscriber docs, `receipt_sent` on transactions.
+- **Database:** MySQL. Reads: subscriber rows (`companies` table), `membership_plans`, `payment_transactions`, `platform_settings`. Writes: dunning/grace columns on subscriber rows, `receipt_sent` on transaction rows.
 - **Payment provider:** Stripe (Balance retrieve, Invoice list/pay). Optional — every Stripe call is wrapped so the dashboard degrades gracefully with no provider connected.
 - **Email:** transactional email service with an HTML template wrapper (reference: SendGrid).
 
@@ -44,7 +44,7 @@ Five admin pages sharing one tab navigation, backed by one route file:
 | Component | Responsibility |
 |-----------|----------------|
 | Financial router | Single backend route file, prefix `/admin/financial`, tag `financial`. Every handler: auth dependency + explicit super-admin role check (403 otherwise). |
-| Metric calculators | MRR/ARR/overage/churn/conversion computed on request from live collections — no denormalized metrics tables, no caching. Acceptable at small subscriber counts (see §10 performance note). |
+| Metric calculators | MRR/ARR/overage/churn/conversion computed on request from live tables/queries — no denormalized metrics tables, no caching. Acceptable at small subscriber counts (see §10 performance note). |
 | Provider adapter reuse | Stripe calls import the existing `configure_stripe()` helper from the payments module — API keys stay in one place (platform settings, test/live aware). |
 | Graceful provider degradation | Stripe balance fetch wrapped in try/except → returns `null`; UI renders "—  Not connected" card. Dashboard fully works without Stripe. |
 | Tab nav component | One shared `FinancialTabNav` renders page title + 5 tab buttons via router navigation. Each page imports it above content — tabs are separate routes/pages, NOT client-side tab state, so each tab is deep-linkable and loads only its own data. |
@@ -54,7 +54,7 @@ Five admin pages sharing one tab navigation, backed by one route file:
 
 ### 3. Data Model (read + written)
 
-**3.1 Subscriber doc (`companies`) — billing fields this system reads:**
+**3.1 Subscriber row (`companies` table) — billing fields this system reads:**
 
 | Field | Meaning |
 |-------|---------|
@@ -74,7 +74,7 @@ Five admin pages sharing one tab navigation, backed by one route file:
 
 > Amount rule everywhere: `amount_total / 100` if present, else `amount` as-is.
 
-**3.4 Settings singleton (`platform_settings`, `_id: "membership_settings"`):** `overage_price_per_customer` (default 5.0), `overage_price_per_user` (default 10.0), `grace_period_days` (default 14).
+**3.4 Settings singleton (`platform_settings` table, row `id = 'membership_settings'`):** `overage_price_per_customer` (default 5.0), `overage_price_per_user` (default 10.0), `grace_period_days` (default 14).
 
 ### 4. Metric Formulas (exact)
 
@@ -118,7 +118,7 @@ Risk block: count of `trialing` (may churn at trial end) + count of `past_due`.
 | Method | Path | Returns |
 |--------|------|---------|
 | GET | `/admin/financial/overview` | `{companies:{total,active,trialing,past_due,cancelled,no_subscription,paid,cc_valid,grace_period,free_lifetime}, revenue:{mrr,arr,overage_estimate,total_mrr,lifetime_total,by_plan:{name:{mrr,count,type}}}, metrics:{conversion_rate,churn_rate,recent_payments,failed_payments}, stripe_balance:{available,pending,currency}\|null, mrr_history:[{month,subscribers}×6]}` |
-| GET | `/admin/financial/subscribers` | query: `status` (incl. sentinel `no_subscription` → `{$in:[null,"none",""]}`), `plan`, `is_paid`, `search` (regex on name/subdomain, case-insensitive), `sort_by` (whitelist: name/created_at/subscription_status), `sort_dir`, `limit` (≤200), `skip`. Returns `{subscribers:[...per-company row with full billing math, see §3-§4], total}` |
+| GET | `/admin/financial/subscribers` | query: `status` (incl. sentinel `no_subscription` → `(subscription_status IS NULL OR subscription_status IN ('none',''))`), `plan`, `is_paid`, `search` (`name LIKE ? OR subdomain LIKE ?`, case-insensitive collation), `sort_by` (whitelist: name/created_at/subscription_status), `sort_dir`, `limit` (≤200), `skip` → `ORDER BY ... LIMIT ? OFFSET ?`. Returns `{subscribers:[...per-company row with full billing math, see §3-§4], total}` |
 | GET | `/admin/financial/subscribers/export` | CSV stream, filename `subscribers_YYYYMMDD.csv`. Calls the subscribers handler function directly (limit 200, sorted by name) and writes DictWriter rows |
 | GET | `/admin/financial/revenue-by-plan` | `{plans:[{plan, mrr, subscribers}]}` sorted by MRR desc (chart feed) |
 | GET | `/admin/financial/payments` | query: `status`, `limit` (≤200), `skip`. `{transactions:[{id, company_name, plan_name, amount, currency, payment_status, created_at, ...}], total}` — names resolved per row |
@@ -192,12 +192,12 @@ The failed-queue and grace logic only work if the provider webhook maintains sta
 
 - **Tailwind dynamic classes:** `bg-${color}-50` / `text-${color}-600` in StatCard/badges are runtime-composed — the JIT purge cannot see them. Safelist the used color families (blue, green, amber, red, gray, purple) or switch to a static class map. In the source app these classes happen to exist elsewhere; do not rely on that.
 - **Zero-division guards everywhere:** conversion, churn, growth, avg-MRR all guard `denominator > 0` and fall back to 0 — a fresh install with no subscribers must render all-zeros, not 500.
-- **`no_subscription` filter sentinel** must map to `{$in: [null, "none", ""]}` — subscriber docs from different eras store "no plan" three different ways.
+- **`no_subscription` filter sentinel** must map to `(subscription_status IS NULL OR subscription_status IN ('none', ''))` — subscriber rows from different eras store "no plan" three different ways.
 - **Amount normalization:** provider webhook writes cents (`amount_total`), legacy/manual rows may hold dollars (`amount`). Normalize at read time (§3.3 rule), never mix.
-- **Whitelist `sort_by`** against known fields — it's interpolated into the sort call.
+- **Whitelist `sort_by`** against known fields — it's interpolated into the `ORDER BY` clause.
 - **Retry endpoint returns card declines as 200** `{status:"failed", message}` so the UI can toast the provider's human-readable decline reason; only infra errors raise 500.
 - **Grace extension** bases on existing `grace_period_ends` when in the future (extends), else on `now` (starts fresh).
-- **Performance:** metric endpoints iterate subscribers and issue per-subscriber lookups (plan fetch + 2 user counts) — O(N) queries. Fine below ~500 subscribers; beyond that convert to aggregation pipelines with `$lookup`, or cache plans in one upfront query (`plan_id → plan` map).
+- **Performance:** metric endpoints iterate subscribers and issue per-subscriber lookups (plan fetch + 2 user counts) — O(N) queries. Fine below ~500 subscribers; beyond that convert to JOINs / grouped aggregate queries, or cache plans in one upfront `SELECT` (`plan_id → plan` map).
 - **History is reconstructed**, not snapshotted (§4) — if accurate historical MRR matters, add a monthly snapshot cron writing `{month, mrr, subscribers}` docs and read those instead.
 - **Forecast is linear** on 6 months of approximate data — label it "Based on current growth trend" in UI (source app does) and do not present as financial guidance.
 - **CSV export cap 200 rows** (reuses endpoint limit). Raise the limit param or paginate the export loop for larger bases — silent truncation otherwise.

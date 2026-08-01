@@ -4,7 +4,7 @@ Complete SaaS administration portal: dark grouped sidebar, role-gated shell (adm
 
 **Type:** large full feature subsystem (design system + admin shell + auth/roles + dashboard + users CRUD + generic module engine + block mounting points).
 
-**Reference stack:** Express (TypeScript, async handlers, zod) + JSON-file or document store + React 18 (function components + hooks) + Tailwind CSS v4 + react-router v7 + lucide-react + framer-motion. Map onto project equivalents if different (FastAPI/Mongo, Next.js, etc.).
+**Reference stack:** Express (TypeScript, async handlers, zod) + MySQL (InnoDB, utf8mb4) + React 18 (function components + hooks) + Tailwind CSS v4 + react-router v7 + lucide-react + framer-motion. Map onto project equivalents if different (FastAPI, Next.js, etc.).
 
 > **Origin:** extracted from the Dataly admin portal. Product-specific features (upload review, credit ledger, data search) are deliberately excluded — they illustrate the *module pattern* (§8) but are not part of this spec.
 
@@ -21,7 +21,7 @@ You are given a task to build a **complete admin portal** in the codebase.
 Reference stack (map onto project equivalents if different):
 - **Frontend:** React function components + hooks, react-router, Tailwind utility classes driven by design tokens, lucide-react icons ONLY (never emojis), framer-motion for the few signature animations, toast notifications.
 - **Backend:** Express + TypeScript, async handlers (install `express-async-errors` — Express 4 silently crashes the process on rejected async handlers otherwise), zod on every body/param, bearer-token sessions.
-- **Database:** any. Reference uses JSON-file stores with atomic queued writes; swap for SQL/Mongo freely. The contracts below are storage-agnostic.
+- **Database:** MySQL (InnoDB, utf8mb4). The contracts below are storage-agnostic — map onto another store if a project requires it, but MySQL is the reference.
 
 ### 1. Design System — "Dark Command" tokens
 

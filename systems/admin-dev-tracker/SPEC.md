@@ -4,7 +4,7 @@ Development progress tracker page for an admin portal: 100% of a project's plann
 
 **Type:** full feature subsystem (two tables/collections + API + one admin page). Designed to mount on the `admin-portal-system` chassis (same tokens, primitives, guards) but works in any admin.
 
-**Reference stack:** any REST backend (PHP/FastAPI/Express) + SQL or document store + React (function components + hooks). JWT roles: `admin`, `super_admin`.
+**Reference stack:** any REST backend (PHP/FastAPI/Express) + MySQL + React (function components + hooks). JWT roles: `admin`, `super_admin`.
 
 > Purpose: kill the "half-built feature discovered by the owner" failure mode. The tracker is the human view of the project's traceability matrix; optionally two-way-synced with a `features.yaml` in the repo so CI and humans read the same truth.
 
@@ -21,7 +21,7 @@ You are given a task to build an **Admin Dev Tracker** in the codebase.
 Reference stack (map onto project equivalents):
 - **Frontend:** React function components + hooks, the project's existing UI primitives (Card, Badge, Table, toast). lucide-react icons.
 - **Backend:** existing REST conventions — response envelope, JWT guard middleware (`requireAdmin`, `requireSuperAdmin`).
-- **Database:** two tables/collections: `features`, `feature_events` (append-only), plus `recommendations`.
+- **Database:** MySQL — three tables: `features`, `feature_events` (append-only), plus `recommendations`.
 
 ### 1. Overview
 

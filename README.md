@@ -55,14 +55,14 @@ Install a skill: copy `skills/<name>/` to `~/.claude/skills/<name>/` (or `dmcode
 |--------|----------|-------|------|
 | Admin portal system (chassis) | Admin shell / design system | Express + TS + React + Tailwind v4 | [SPEC.md](systems/admin-portal-system/SPEC.md) |
 | Admin Dev Tracker | Admin / dev process | Any REST + SQL/doc store + React | [SPEC.md](systems/admin-dev-tracker/SPEC.md) |
-| Transactional email template system | Admin / email infra | FastAPI + doc store + email SDK + React | [SPEC.md](systems/email-template-system/SPEC.md) |
-| Coupon code system | Billing / discounts | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/coupon-code-system/SPEC.md) |
-| Paid subscription / membership system | Billing / subscriptions (full stack) | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/paid-subscription-system/SPEC.md) |
+| Transactional email template system | Admin / email infra | FastAPI + MySQL + email SDK + React | [SPEC.md](systems/email-template-system/SPEC.md) |
+| Coupon code system | Billing / discounts | FastAPI + MySQL + React + Stripe | [SPEC.md](systems/coupon-code-system/SPEC.md) |
+| Paid subscription / membership system | Billing / subscriptions (full stack) | FastAPI + MySQL + React + Stripe | [SPEC.md](systems/paid-subscription-system/SPEC.md) |
 | Support ticket system (full helpdesk) | Support / helpdesk / ITSM | PHP + MySQL + React + JWT + S3 | [SPEC.md](systems/support-ticket-system/SPEC.md) |
-| Personal task / to-do system | Productivity / tasks | FastAPI + MongoDB + React | [SPEC.md](systems/personal-task-system/SPEC.md) |
-| Training video library | Education / content | FastAPI + MongoDB + React + YouTube | [SPEC.md](systems/training-video-library/SPEC.md) |
-| Cancellation + retention module | Billing / retention / churn | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/cancellation-retention-module/SPEC.md) |
-| Financial dashboard, forecast & reports | Billing / analytics / dunning ops | FastAPI + MongoDB + React + Stripe | [SPEC.md](systems/financial-dashboard-system/SPEC.md) |
+| Personal task / to-do system | Productivity / tasks | FastAPI + MySQL + React | [SPEC.md](systems/personal-task-system/SPEC.md) |
+| Training video library | Education / content | FastAPI + MySQL + React + YouTube | [SPEC.md](systems/training-video-library/SPEC.md) |
+| Cancellation + retention module | Billing / retention / churn | FastAPI + MySQL + React + Stripe | [SPEC.md](systems/cancellation-retention-module/SPEC.md) |
+| Financial dashboard, forecast & reports | Billing / analytics / dunning ops | FastAPI + MySQL + React + Stripe | [SPEC.md](systems/financial-dashboard-system/SPEC.md) |
 | Software licensing + SDK system | Licensing / anti-piracy | Express + TS + MySQL + Ed25519 + React | [SPEC.md](systems/software-licensing-system/SPEC.md) |
 | CDN / object storage integration | Infrastructure / file storage | DO Spaces (S3) + PHP/Node/Python + MySQL | [SPEC.md](systems/cdn-object-storage/SPEC.md) |
 | Vault module (biz info + credential manager) | Admin / company records / secrets | PHP + MySQL + vanilla JS (stack-neutral spec) | [SPEC.md](systems/vault-module/SPEC.md) |

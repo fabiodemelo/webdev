@@ -4,7 +4,7 @@ Full membership stack: admin-defined tiered plans, hosted-checkout payments, a c
 
 **Type:** large full feature subsystem (plan catalog + coupon engine + checkout + webhooks + dunning + access guard + admin + subscriber UI + API).
 
-**Reference stack:** FastAPI (Python) + MongoDB-style doc store + React + Stripe (Checkout Sessions + Customer Portal + Webhooks).
+**Reference stack:** FastAPI (Python) + MySQL + React + Stripe (Checkout Sessions + Customer Portal + Webhooks).
 
 > **Related:** [coupon-code-system](../coupon-code-system/SPEC.md) is a narrower, standalone coupon spec from a different source app (types: percentage | free_lifetime). This system's coupon engine adds a `fixed` discount type and is embedded in the broader billing lifecycle. Use this spec for full billing; use the coupon spec if you only need codes bolted onto existing billing.
 
@@ -33,7 +33,7 @@ You are given a task to build a **paid subscription / membership system** in the
 Reference stack (map onto project equivalents if different):
 - **Frontend:** React (function components + hooks), toast notifications, controlled-input forms. No payment-provider JS SDK required — checkout is hosted.
 - **Backend:** Python + FastAPI, async handlers, Pydantic request models. Two routers: authenticated user router (checkout/status/current plan) + super-admin router (plans, coupons, settings, billing review).
-- **Database:** document store (MongoDB-style). Collections: `membership_plans`, `coupons`, `payment_transactions`, `platform_settings`, plus a subscription state block on each subscriber document.
+- **Database:** MySQL. Tables: `membership_plans`, `coupons`, `payment_transactions`, `platform_settings`, plus subscription-state columns on each subscriber row.
 - **Payment provider:** Stripe (Checkout Sessions + Customer Portal + Webhooks). Any provider with hosted checkout + signed webhooks fits.
 
 Replace "subscriber" with the right noun for the product (user, account, team, workspace, company).
@@ -56,99 +56,130 @@ Major moving parts:
 | Component | Responsibility |
 |-----------|----------------|
 | Plan Catalog | Plans live entirely in DB, admin-edited. Soft delete (deactivate) instead of hard delete when subscribers exist. |
-| Coupon Engine | DB collection. Codes uppercase-normalized. Validation: is_active, expiration, usage limit, plan restriction. |
+| Coupon Engine | DB table. Codes uppercase-normalized. Validation: is_active, expiration, usage limit, plan restriction. |
 | Hosted Checkout | Server creates provider session, returns redirect URL. Sets metadata (subscriber id, plan id, billing cycle) for webhook correlation. |
 | Payment Provider Adapter | Centralized helper: loads right API key (test vs live), configures SDK, exposes small op set. |
 | Webhook Endpoint | Verifies signature vs stored secret; processes events into local state; always returns 200 to prevent provider retries. |
 | Transaction Ledger | Every checkout recorded before redirect (status "initiated"); webhook/poll updates to completed/failed/expired. Audit + payment history. |
 | Access Guard | Pure async function from auth-protected handlers/middleware → `has_access, grace_period, days_remaining, message`. |
-| Settings Singleton | Single platform-settings doc: grace period days, require-valid-card, overage prices. |
+| Settings Singleton | Single platform-settings row: grace period days, require-valid-card, overage prices. |
 
 ### 3. Domain Model
 
-**3.1 Plan** — `membership_plans` collection:
+**3.1 Plan** — `membership_plans` table:
 
-| Field | Description |
-|-------|-------------|
-| `name` | Unique, 2–50 chars. Uniqueness enforced on create. |
-| `description` | Marketing blurb. |
-| `price` | Monthly base price ≥ 0 (zero = free plan). |
-| `yearly_price` | Optional yearly price shown alongside monthly. |
-| `lifetime_price` | Optional one-time perpetual price. |
-| `billing_cycle` | `"monthly" \| "yearly" \| "one_time"`. Drives subscription vs one-time payment. |
-| `user_limit` | Seats/admin users included. For overage. |
-| `client_limit` | Customers/clients included (B2B quota). For overage. |
-| `show_client_limit` | Whether to display client limit on cards. |
-| `usage_quota` (opt) | Domain-specific monthly quota (e.g. "verifications/month"). Nullable. |
-| `features` | List of marketing strings (bullets). |
-| `trial_days` | Trial days; 0 = none. |
-| `is_active` | Soft visibility flag. Inactive hidden from public catalog. |
-| `is_popular` | Highlights card with badge. |
-| `badge_text` | Custom badge label (default "Most Popular"). |
-| `cta_text` | Custom button label. |
-| `provider_price_id` | Optional cached provider price id (null here — price_data sent per checkout). |
-| `created_at` / `updated_at` | Audit. |
+```sql
+CREATE TABLE membership_plans (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(50) NOT NULL UNIQUE,                 -- Unique, 2–50 chars. Uniqueness enforced on create.
+  description TEXT,                                  -- Marketing blurb.
+  price DECIMAL(12,2) NOT NULL DEFAULT 0.00,         -- Monthly base price >= 0 (zero = free plan).
+  yearly_price DECIMAL(12,2) NULL,                   -- Optional yearly price shown alongside monthly.
+  lifetime_price DECIMAL(12,2) NULL,                 -- Optional one-time perpetual price.
+  billing_cycle ENUM('monthly','yearly','one_time') NOT NULL DEFAULT 'monthly', -- Drives subscription vs one-time payment.
+  user_limit INT UNSIGNED NOT NULL DEFAULT 0,        -- Seats/admin users included. For overage.
+  client_limit INT UNSIGNED NOT NULL DEFAULT 0,      -- Customers/clients included (B2B quota). For overage.
+  show_client_limit TINYINT(1) NOT NULL DEFAULT 1,   -- Whether to display client limit on cards.
+  usage_quota INT UNSIGNED NULL,                     -- Domain-specific monthly quota (e.g. "verifications/month"). Nullable.
+  features JSON,                                     -- List of marketing strings (bullets).
+  trial_days INT UNSIGNED NOT NULL DEFAULT 0,        -- Trial days; 0 = none.
+  is_active TINYINT(1) NOT NULL DEFAULT 1,           -- Soft visibility flag. Inactive hidden from public catalog.
+  is_popular TINYINT(1) NOT NULL DEFAULT 0,          -- Highlights card with badge.
+  badge_text VARCHAR(50) NULL,                       -- Custom badge label (default "Most Popular").
+  cta_text VARCHAR(50) NULL,                         -- Custom button label.
+  provider_price_id VARCHAR(255) NULL,               -- Optional cached provider price id (null here — price_data sent per checkout).
+  created_at DATETIME NOT NULL,                      -- Audit.
+  updated_at DATETIME NOT NULL                       -- Audit.
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
 
-**3.2 Coupon** — `coupons` collection:
+**3.2 Coupon** — `coupons` table:
 
-| Field | Description |
-|-------|-------------|
-| `code` | Uppercase, unique, 3–30 chars. Case-insensitive on redemption. |
-| `discount_type` | `"percentage" \| "fixed" \| "free_lifetime"`. free_lifetime bypasses provider. |
-| `discount_value` | Percentage (1–100) or fixed amount in cents. Ignored for free_lifetime. |
-| `coupon_type` | Equivalent to discount_type for free_lifetime detection at redemption. |
-| `applicable_plan_ids` | Optional list. If non-empty, code valid only for these plans. |
-| `max_uses` | Total redemption cap. |
-| `current_uses` | Counter, incremented atomically on redemption. |
-| `valid_from` / `expires_at` | Optional active window. |
-| `is_active` | Manual on/off. |
-| `total_discount_given` | Sum discounted (reporting). |
-| `usage_history` | Append-only `{ user_id, subscriber_id, plan_id, plan_name, original_price, discount_amount, redeemed_at }`. |
-| `created_at` / `updated_at` | Audit. |
+```sql
+CREATE TABLE coupons (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  code VARCHAR(30) NOT NULL UNIQUE,                  -- Uppercase, unique, 3–30 chars. Case-insensitive on redemption.
+  discount_type ENUM('percentage','fixed','free_lifetime') NOT NULL, -- free_lifetime bypasses provider.
+  discount_value INT UNSIGNED NULL,                  -- Percentage (1–100) or fixed amount in cents. Ignored for free_lifetime.
+  coupon_type VARCHAR(20) NULL,                      -- Equivalent to discount_type for free_lifetime detection at redemption.
+  applicable_plan_ids JSON NULL,                     -- Optional list. If non-empty, code valid only for these plans.
+  max_uses INT UNSIGNED NULL,                        -- Total redemption cap.
+  current_uses INT UNSIGNED NOT NULL DEFAULT 0,      -- Counter, incremented atomically on redemption.
+  valid_from DATETIME NULL,                          -- Optional active window (start).
+  expires_at DATETIME NULL,                          -- Optional active window (end).
+  is_active TINYINT(1) NOT NULL DEFAULT 1,           -- Manual on/off.
+  total_discount_given DECIMAL(12,2) NOT NULL DEFAULT 0.00, -- Sum discounted (reporting).
+  usage_history JSON,                                -- Append-only { user_id, subscriber_id, plan_id, plan_name, original_price, discount_amount, redeemed_at }.
+  created_at DATETIME NOT NULL,                      -- Audit.
+  updated_at DATETIME NOT NULL                       -- Audit.
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
 
-**3.3 Subscription state (embedded on subscriber, NOT a separate collection — makes the access guard a single read):**
+**3.3 Subscription state (columns on the subscriber row, NOT a separate table — makes the access guard a single read):**
 
-| Field | Description |
-|-------|-------------|
-| `membership_plan_id` | Reference to plan. |
-| `subscription_status` | `"none" \| "trialing" \| "active" \| "past_due" \| "cancelled"`. Mirrors provider. |
-| `subscription_type` | `"subscription" \| "one_time" \| "free_lifetime"`. |
-| `subscription_started_at` | Activation time. |
-| `provider_subscription_id` | Provider sub id; correlates webhooks. |
-| `provider_customer_id` | Provider customer id; for Customer Portal. |
-| `is_paid` | Convenience bool — true if active or free_lifetime. Webhook-maintained. |
-| `cc_valid` | Working payment method on file. |
-| `cc_last4` / `cc_expiry` | Display-only card metadata. |
-| `payment_retry_count` | Consecutive payment failures (dunning). |
-| `last_payment_failure` / `last_payment_error` | Timestamp + extracted provider message. |
-| `grace_period_ends` | If not null + future, access granted with warning. |
-| `coupon_code_used` | Code redeemed at activation. |
+Added to the subscriber (`companies`) table:
 
-**3.4 Payment transaction** — `payment_transactions`, one per checkout attempt:
+```sql
+ALTER TABLE companies
+  ADD COLUMN membership_plan_id INT UNSIGNED NULL,                 -- Reference to plan.
+  ADD COLUMN subscription_status ENUM('none','trialing','active','past_due','cancelled') NOT NULL DEFAULT 'none', -- Mirrors provider.
+  ADD COLUMN subscription_type ENUM('subscription','one_time','free_lifetime') NULL,
+  ADD COLUMN subscription_started_at DATETIME NULL,                -- Activation time.
+  ADD COLUMN provider_subscription_id VARCHAR(255) NULL,           -- Provider sub id; correlates webhooks.
+  ADD COLUMN provider_customer_id VARCHAR(255) NULL,               -- Provider customer id; for Customer Portal.
+  ADD COLUMN is_paid TINYINT(1) NOT NULL DEFAULT 0,                -- Convenience bool — true if active or free_lifetime. Webhook-maintained.
+  ADD COLUMN cc_valid TINYINT(1) NOT NULL DEFAULT 0,               -- Working payment method on file.
+  ADD COLUMN cc_last4 VARCHAR(4) NULL,                             -- Display-only card metadata.
+  ADD COLUMN cc_expiry VARCHAR(7) NULL,                            -- Display-only card metadata (e.g. "12/2025").
+  ADD COLUMN payment_retry_count INT UNSIGNED NOT NULL DEFAULT 0,  -- Consecutive payment failures (dunning).
+  ADD COLUMN last_payment_failure DATETIME NULL,                   -- Timestamp of last failure.
+  ADD COLUMN last_payment_error VARCHAR(512) NULL,                 -- Extracted provider message.
+  ADD COLUMN grace_period_ends DATETIME NULL,                      -- If not null + future, access granted with warning.
+  ADD COLUMN coupon_code_used VARCHAR(30) NULL,                    -- Code redeemed at activation.
+  ADD CONSTRAINT fk_companies_membership_plan FOREIGN KEY (membership_plan_id) REFERENCES membership_plans(id);
+```
 
-| Field | Description |
-|-------|-------------|
-| `session_id` | Provider checkout session id. |
-| `user_id` / `subscriber_id` / `plan_id` | Who, for whom, for what. |
-| `amount` / `amount_cents` / `currency` | Both forms stored; cents authoritative. |
-| `status` | `"initiated" \| "completed" \| "failed"`. |
-| `payment_status` | Provider-reported: `"pending" \| "paid" \| "unpaid" \| "expired" \| "free"`. |
-| `type` | `"subscription" \| "one_time" \| "free_lifetime"`. |
-| `billing_cycle` / `trial_days` | Plan snapshot at checkout. |
-| `coupon_code` | If applied. |
-| `metadata` | Mirrors provider metadata for reliable webhook correlation. |
-| `webhook_processed_at` | Set when matching webhook handled. |
-| `created_at` / `updated_at` | Audit. |
+**3.4 Payment transaction** — `payment_transactions` table, one row per checkout attempt:
 
-**3.5 Membership Settings (singleton)** — `platform_settings`, `_id = "membership_settings"`:
+```sql
+CREATE TABLE payment_transactions (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  session_id VARCHAR(255) NULL,                      -- Provider checkout session id.
+  user_id INT UNSIGNED NULL,                         -- Who.
+  subscriber_id INT UNSIGNED NULL,                   -- For whom.
+  plan_id INT UNSIGNED NULL,                         -- For what.
+  amount DECIMAL(12,2) NULL,                         -- Both forms stored; cents authoritative.
+  amount_cents INT UNSIGNED NULL,                    -- Authoritative amount in cents.
+  currency VARCHAR(3) NULL,                          -- ISO currency code.
+  status ENUM('initiated','completed','failed') NOT NULL DEFAULT 'initiated',
+  payment_status ENUM('pending','paid','unpaid','expired','free') NULL, -- Provider-reported.
+  type ENUM('subscription','one_time','free_lifetime') NULL,
+  billing_cycle VARCHAR(20) NULL,                    -- Plan snapshot at checkout.
+  trial_days INT UNSIGNED NULL,                      -- Plan snapshot at checkout.
+  coupon_code VARCHAR(30) NULL,                      -- If applied.
+  metadata JSON,                                     -- Mirrors provider metadata for reliable webhook correlation.
+  webhook_processed_at DATETIME NULL,                -- Set when matching webhook handled.
+  created_at DATETIME NOT NULL,                      -- Audit.
+  updated_at DATETIME NOT NULL,                      -- Audit.
+  INDEX idx_payment_tx_session (session_id),
+  INDEX idx_payment_tx_subscriber (subscriber_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
 
-| Field | Description |
-|-------|-------------|
-| `require_valid_cc` | If true, access guard restricts subscribers without valid card. |
-| `grace_period_days` | Days after billing failure before restriction. Default 14. |
-| `overage_price_per_user` | Reference unit-price for over-limit seats. Default 10.0. |
-| `overage_price_per_customer` | Reference unit-price for over-limit customers. Default 5.0. |
-| `updated_at` | Audit. |
+**3.5 Membership Settings (singleton)** — `platform_settings`, a single-row settings table:
+
+Enforce a single row (e.g. `id = 1`). This table holds the membership settings below **plus** the provider keys from §8, which live as additional columns here and are masked by the API on read (behavior unchanged). A key/value `platform_settings` table (setting name → value) is an equivalent alternative.
+
+```sql
+CREATE TABLE platform_settings (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  require_valid_cc TINYINT(1) NOT NULL DEFAULT 0,               -- If true, access guard restricts subscribers without valid card.
+  grace_period_days INT UNSIGNED NOT NULL DEFAULT 14,          -- Days after billing failure before restriction. Default 14.
+  overage_price_per_user DECIMAL(12,2) NOT NULL DEFAULT 10.00,     -- Reference unit-price for over-limit seats. Default 10.0.
+  overage_price_per_customer DECIMAL(12,2) NOT NULL DEFAULT 5.00,  -- Reference unit-price for over-limit customers. Default 5.0.
+  updated_at DATETIME NULL                                     -- Audit.
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
 
 ### 4. Subscription Lifecycle
 
@@ -190,17 +221,19 @@ none ──checkout success──► trialing ──trial ends──► active
 - **Polling:** success page calls `GET /payments/status/{session_id}`. Server retrieves session from provider, updates transaction, if `payment_status == "paid"` calls `activate_subscription()`. Polled every few seconds until final.
 - **Webhook:** provider posts to `/webhook/stripe` on every event. Signature verified vs stored secret. Same `activate_subscription()` path runs, idempotently.
 
-**5.3 Activation** — `activate_subscription()` writes the subscriber's state block:
-```python
-subscriber.membership_plan_id      = transaction.plan_id
-subscriber.subscription_status     = "active"
-subscriber.subscription_started_at = now
-subscriber.provider_subscription_id = session.subscription
-subscriber.is_paid                 = True
-subscriber.cc_valid                = True
-subscriber.grace_period_ends       = None
-subscriber.payment_retry_count     = 0
-# Best-effort: pull cc_last4 / cc_expiry from PaymentMethod.list(customer)
+**5.3 Activation** — `activate_subscription()` writes the subscriber's state columns:
+```sql
+UPDATE companies SET
+  membership_plan_id       = :transaction_plan_id,
+  subscription_status      = 'active',
+  subscription_started_at  = NOW(),
+  provider_subscription_id = :session_subscription,
+  is_paid                  = 1,
+  cc_valid                 = 1,
+  grace_period_ends        = NULL,
+  payment_retry_count      = 0
+WHERE id = :subscriber_id;
+-- Best-effort: pull cc_last4 / cc_expiry from PaymentMethod.list(customer)
 ```
 
 **5.4 Free-lifetime activation (no provider):**
@@ -232,11 +265,11 @@ Endpoint MUST verify provider signature vs stored secret. After processing, **al
 
 **7.2 Access guard** — single async `check_subscriber_access(subscriber_id)` called by auth-protected handlers/middleware:
 ```python
-settings = load(membership_settings)
+settings = SELECT * FROM platform_settings LIMIT 1   -- single settings row
 if not settings.require_valid_cc:
     return { has_access: True, grace_period: False }
 
-s = load(subscriber)
+s = SELECT * FROM companies WHERE id = subscriber_id  -- single subscriber row
 if s.is_paid or s.cc_valid:
     return { has_access: True, grace_period: False }
 
@@ -257,7 +290,7 @@ Calling sites turn `has_access == False` into a 402 or billing-page redirect; `g
 
 ### 8. Payment Provider Configuration
 
-API keys + webhook secret stored in a platform-settings doc (NOT env) so admins rotate them via admin UI without redeploys.
+API keys + webhook secret stored as columns on the `platform_settings` row (NOT env) so admins rotate them via admin UI without redeploys.
 
 | Setting | Purpose |
 |---------|---------|
@@ -373,8 +406,8 @@ Behavior: masked secrets are never echoed back; a save with the field left at it
 
 ### Reproduction Checklist
 
-1. Create four collections: `membership_plans`, `coupons`, `payment_transactions`, `platform_settings` (singleton).
-2. Add subscription state fields to the subscriber model (plan_id, status, is_paid, cc_valid, cc_last4, cc_expiry, grace_period_ends, retry count, provider_subscription_id, provider_customer_id).
+1. Create four tables: `membership_plans`, `coupons`, `payment_transactions`, `platform_settings` (single-row).
+2. Add subscription state columns to the subscriber (`companies`) table (plan_id, status, is_paid, cc_valid, cc_last4, cc_expiry, grace_period_ends, retry count, provider_subscription_id, provider_customer_id).
 3. Build admin Plans CRUD (super-admin). Enforce unique name. Soft delete with active-subscriber guard.
 4. Build admin Coupons CRUD. Normalize codes uppercase. Validate discount_type + limits.
 5. Build singleton membership-settings GET/PUT with defaults (grace_period_days=14, require_valid_cc=false).
@@ -397,7 +430,7 @@ Behavior: masked secrets are never echoed back; a save with the field left at it
 | Field | Value |
 |-------|-------|
 | Category | Billing / subscriptions / membership (full stack) |
-| Backend | FastAPI (async) + document store |
+| Backend | FastAPI (async) + MySQL |
 | Frontend | React + shared API client |
 | Payments | Stripe (Checkout + Customer Portal + Webhooks) |
 | Coupon types | percentage, fixed, free_lifetime |
