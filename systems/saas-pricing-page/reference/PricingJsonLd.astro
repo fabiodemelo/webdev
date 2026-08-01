@@ -1,0 +1,74 @@
+---
+// WebPage + Offer ItemList for /pricing/.
+// Surfaces per-plan offers to AI assistants and Rich Results Test.
+const page = {
+  '@context': 'https://schema.org',
+  '@type': 'WebPage',
+  '@id': 'https://www.klees.app/pricing/#webpage',
+  url: 'https://www.klees.app/pricing/',
+  name: 'Pricing — Klees',
+  isPartOf: { '@id': 'https://www.klees.app/#website' },
+  about: { '@id': 'https://www.klees.app/#software' },
+  mainEntity: {
+    '@type': 'ItemList',
+    name: 'Klees Pricing Plans',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        item: {
+          '@type': 'Offer',
+          name: 'Standard',
+          price: 32,
+          priceCurrency: 'USD',
+          priceSpecification: {
+            '@type': 'UnitPriceSpecification',
+            price: 32,
+            priceCurrency: 'USD',
+            unitText: 'per month base + $6.25 per user per month',
+          },
+          url: 'https://www.klees.app/pricing/',
+          seller: { '@id': 'https://www.klees.app/#organization' },
+        },
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        item: {
+          '@type': 'Offer',
+          name: 'Pro',
+          price: 47,
+          priceCurrency: 'USD',
+          priceSpecification: {
+            '@type': 'UnitPriceSpecification',
+            price: 47,
+            priceCurrency: 'USD',
+            unitText: 'per month base + $7.75 per user per month',
+          },
+          url: 'https://www.klees.app/pricing/',
+          seller: { '@id': 'https://www.klees.app/#organization' },
+        },
+      },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        item: {
+          '@type': 'Offer',
+          name: 'Enterprise',
+          price: 650,
+          priceCurrency: 'USD',
+          priceSpecification: {
+            '@type': 'UnitPriceSpecification',
+            price: 650,
+            priceCurrency: 'USD',
+            unitText: 'per month flat for 100 users',
+          },
+          url: 'https://www.klees.app/pricing/',
+          seller: { '@id': 'https://www.klees.app/#organization' },
+        },
+      },
+    ],
+  },
+};
+---
+<script type="application/ld+json" set:html={JSON.stringify(page)} />
