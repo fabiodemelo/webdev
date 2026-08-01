@@ -146,6 +146,29 @@ CREATE TABLE `ticket_settings` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ─────────────────────────────────────────────────────────────
+-- Per-user dashboard preferences (filters, scope, layout)
+-- One row per user; the app owns the JSON shape and allow-lists every
+-- key/value on write, so no arbitrary client payload is ever stored.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE `ticket_user_prefs` (
+  `user_id`    INT UNSIGNED NOT NULL,
+  `prefs`      JSON NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT current_timestamp(),
+  `updated_at` DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Stored shape:
+-- {
+--   "filterStatus":   ["open","in_progress"],   -- multi-select chips
+--   "filterPriority": ["high"],                 -- multi-select chips
+--   "filterScope":    "mine",                   -- mine | group | all | private
+--   "sortBy":         "newest",                 -- newest|oldest|priority|updated
+--   "columns":        1,                        -- 1..3
+--   "showTeam":       true
+-- }
+
+-- ─────────────────────────────────────────────────────────────
 -- Seed defaults (statuses / priorities / departments)
 -- ─────────────────────────────────────────────────────────────
 INSERT INTO `ticket_settings` (`type`,`value`,`label`,`color`,`sort_order`) VALUES
