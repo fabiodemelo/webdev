@@ -68,6 +68,7 @@ Install a skill: copy `skills/<name>/` to `~/.claude/skills/<name>/` (or `dmcode
 | Vault module (biz info + credential manager) | Admin / company records / secrets | PHP + MySQL + vanilla JS (stack-neutral spec) | [SPEC.md](systems/vault-module/SPEC.md) |
 | Documentation site (product docs section) | Marketing site / product docs | Astro + MDX + Tailwind + Pagefind + Playwright | [SPEC.md](systems/documentation-site/SPEC.md) |
 | SaaS pricing page (live plans + savings calc) | Marketing site / pricing & conversion | Astro + Tailwind + any plans API + JSON-LD | [SPEC.md](systems/saas-pricing-page/SPEC.md) |
+| Scheduled news / articles (self-publishing) | Marketing site / editorial & SEO | Static HTML + vanilla JS + Python + PHP (no deps) | [SPEC.md](systems/scheduled-news-articles/SPEC.md) |
 
 ### Playbooks
 
