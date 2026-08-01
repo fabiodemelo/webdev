@@ -336,7 +336,7 @@ Scores how long closed tickets stayed assigned to each person. The point is beha
 | Poor | ≤ 10d | amber | warning triangle |
 | Bad | > 10d | red | flame |
 
-**14.3 UI.** A card per user, ranked best → worst: name, band chip (colour + icon), a four-zone meter bar with a marker positioned by band (each band owns a fixed quarter of the bar, so someone far past the last threshold doesn't distort it), the average in days, and the ticket count the score rests on. The legend and the threshold scale are printed alongside so the number is self-explanatory. The meter is **team-wide** — it deliberately ignores the dashboard filters.
+**14.3 UI.** A card per user, ranked best → worst, each carrying its **placing in a circle** (1, 2, 3…) before the name — the leader's circle is filled solid in its band colour, the rest are outlined. Users with no closed tickets show a muted dash instead of a number: no data is not last place. Then: name, band chip (colour + icon), a four-zone meter bar with a marker positioned by band (each band owns a fixed quarter of the bar, so someone far past the last threshold doesn't distort it), the average in days, and the ticket count the score rests on. The legend and the threshold scale are printed alongside so the number is self-explanatory. The meter is **team-wide** — it deliberately ignores the dashboard filters.
 
 **14.4 Exclusions & honesty.** Service accounts are excluded by id (the reference build hides an "Apple" App Store review account). Accuracy is bounded by how far back the `reassigned` history goes: tickets closed before assignment history existed credit their whole lifetime to the current assignees, which inflates early averages. Say so in the UI or the rollout note rather than presenting the number as exact.
 
