@@ -1,0 +1,40 @@
+---
+// TechArticle schema for /docs/<slug>/ pages.
+interface Props {
+  title: string;
+  description: string;
+  url: string;
+  updatedDate?: Date;
+  section: string;
+}
+const { title, description, url, updatedDate, section } = Astro.props;
+
+const article = {
+  '@context': 'https://schema.org',
+  '@type': 'TechArticle',
+  '@id': `${url}#article`,
+  headline: title,
+  description,
+  url,
+  articleSection: section,
+  inLanguage: 'en-US',
+  datePublished: '2026-01-01',
+  dateModified: (updatedDate ?? new Date('2026-05-30')).toISOString(),
+  publisher: { '@id': 'https://www.klees.app/#organization' },
+  isPartOf: { '@id': 'https://www.klees.app/#website' },
+  proficiencyLevel: 'Beginner',
+};
+
+const breadcrumbs = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.klees.app/' },
+    { '@type': 'ListItem', position: 2, name: 'Documentation', item: 'https://www.klees.app/docs/' },
+    { '@type': 'ListItem', position: 3, name: section, item: 'https://www.klees.app/docs/' },
+    { '@type': 'ListItem', position: 4, name: title, item: url },
+  ],
+};
+---
+<script type="application/ld+json" set:html={JSON.stringify(article)} />
+<script type="application/ld+json" set:html={JSON.stringify(breadcrumbs)} />

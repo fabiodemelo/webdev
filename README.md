@@ -66,6 +66,7 @@ Install a skill: copy `skills/<name>/` to `~/.claude/skills/<name>/` (or `dmcode
 | Software licensing + SDK system | Licensing / anti-piracy | Express + TS + MySQL + Ed25519 + React | [SPEC.md](systems/software-licensing-system/SPEC.md) |
 | CDN / object storage integration | Infrastructure / file storage | DO Spaces (S3) + PHP/Node/Python + MySQL | [SPEC.md](systems/cdn-object-storage/SPEC.md) |
 | Vault module (biz info + credential manager) | Admin / company records / secrets | PHP + MySQL + vanilla JS (stack-neutral spec) | [SPEC.md](systems/vault-module/SPEC.md) |
+| Documentation site (product docs section) | Marketing site / product docs | Astro + MDX + Tailwind + Pagefind + Playwright | [SPEC.md](systems/documentation-site/SPEC.md) |
 
 ### Playbooks
 

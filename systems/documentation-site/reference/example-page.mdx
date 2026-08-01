@@ -1,0 +1,56 @@
+---
+title: "Reviewing & approving timesheets"
+description: "The weekly timesheet grid — review every clocked entry, add or fix time, apply quick lunch deductions, and approve days for payroll."
+section: "Timesheets & Approvals"
+order: 0
+updatedDate: 2026-07-27
+---
+import Shot from '../../components/docs/Shot.astro';
+import Callout from '../../components/docs/Callout.astro';
+
+The **Timesheets** page is where a manager's week lives: every clocked entry across the crew, laid out by day, with totals that already exclude unpaid breaks and lunch. From here you review, fix, approve, and export.
+
+<Shot src="/docs-img/timesheets/timesheets.png" device="desktop" alt="Weekly timesheet grid with employees as rows and days as columns" caption="Timesheets — the weekly grid. Weekend columns are tinted; totals exclude unpaid breaks." />
+
+## Reading the grid
+
+- **Rows** are employees, **columns** are the days of the selected week.
+- Each cell shows the hours worked that day. Icons flag things worth a look — alerts, missing clock-outs, offline replays.
+- The **Total** column and bottom row give per-person and per-day sums.
+- Use the week arrows or the date dropdown to move between weeks.
+- **All Employees** filters to a team or person; **Hide employees with no time** collapses empty rows — and Klees remembers this preference per user.
+
+## Drilling into a day
+
+Click any cell to open the **day view** for that person: every entry with clock-in/out times, breaks, GPS points on a map, alerts, notes, and any [clock-out photos](/docs/daily-logs-and-photos/) the worker attached.
+
+From the day view you can:
+
+- **Edit an entry** — adjust clock-in/out times, the job, or breaks.
+- **Add a break or lunch** — including the one-tap **+30 min lunch** and **+1 hour lunch** buttons for the common case where a crew forgot to log lunch.
+- **Approve** the day, or approve everything with **Approve all** back on the grid.
+- **Watch the GPS path** — the embedded map replays the worker's route for the entry.
+
+<Callout type="note" title="Who can edit whose time">
+Managers, admins, and supervisors can edit and approve **other people's** time — never their own. Only the **Owner** can edit their own entries. Attempts are blocked server-side, and every change lands in the audit log. See [Self-edit restrictions](/docs/self-edit-restrictions/).
+</Callout>
+
+## Adding time manually
+
+Crew forgot to clock in entirely? Add the entry for them:
+
+1. Click **Add Time** (top right).
+2. Pick the person, job, date, and the clock-in/out times.
+3. Save — the entry is marked as manually added and shows in the audit trail.
+
+## Alerts on entries
+
+Klees flags entries automatically — overtime, missed clock-outs, no-shows, offline punches synced late, GPS anomalies, and **punches made through a VPN or proxy** (which hide the worker's real location — the alert names the VPN provider and where the traffic actually exited). Alerts show on the grid and in the day view; dismiss them once handled. The same alerts feed the [Timesheet Alerts report](/docs/reports/) and the [daily red-flags email](/docs/company-settings/#daily-red-flags-email).
+
+## Approving for payroll
+
+Approving locks the day: the entries stop being editable by the worker and count as payroll-ready. Approve per-day in the drill view, or **Approve all** for the week once you're done reviewing. Approved hours flow into [Reports](/docs/reports/) and your [payroll integration](/docs/payroll/).
+
+<Callout type="tip">
+A fast weekly rhythm: Monday morning, open last week → sort out anything flagged → **Approve all** → **Export**. Most teams get review down to minutes once alerts are tuned.
+</Callout>

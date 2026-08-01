@@ -1,0 +1,79 @@
+---
+import Site from '../layouts/Site.astro';
+import PageHero from '../components/site/PageHero.astro';
+import { getCollection, type CollectionEntry } from 'astro:content';
+
+type DocEntry = CollectionEntry<'docs'>;
+const all = await getCollection('docs');
+
+const sectionOrder = ['Getting Started', 'Time Tracking', 'Timesheets & Approvals', 'Jobs & Customers', 'Jobs', 'Scheduling', 'People & Permissions', 'Reports', 'Field Tools', 'PinShot', 'Live Map', 'Company Settings', 'Administration', 'Integrations', 'Platform Admin', 'Reference'];
+const sections: Record<string, DocEntry[]> = {};
+for (const d of all) {
+  const s = d.data.section;
+  if (!sections[s]) sections[s] = [];
+  sections[s].push(d);
+}
+for (const s of Object.keys(sections)) {
+  sections[s].sort((a: DocEntry, b: DocEntry) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title));
+}
+
+// Inline stroke-SVG path data per section (no emoji icons).
+const sectionIcons: Record<string, string> = {
+  'Getting Started': 'M13 2L4.5 12.5H11l-1 7.5L19.5 9.5H13z',
+  'Time Tracking': 'M12 8v4l3 2 M12 21a9 9 0 100-18 9 9 0 000 18z',
+  'Timesheets & Approvals': 'M9 5h6 M9 12l2 2 4-4 M6 3h12v18H6z',
+  'Jobs & Customers': 'M21 8l-9-5-9 5 9 5 9-5z M3 8v8l9 5 9-5V8 M12 13v8',
+  'Jobs': 'M21 8l-9-5-9 5 9 5 9-5z M3 8v8l9 5 9-5V8 M12 13v8',
+  'Scheduling': 'M4 7h16v13H4z M8 3v4 M16 3v4 M4 11h16',
+  'People & Permissions': 'M17 20v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2 M10 10a3 3 0 100-6 3 3 0 000 6 M21 20v-2a3 3 0 00-2-2.8',
+  'Reports': 'M4 20V10 M10 20V4 M16 20v-7 M22 20H2',
+  'Field Tools': 'M14.7 6.3a4 4 0 00-5.4 5.4l-6 6a1.5 1.5 0 002 2l6-6a4 4 0 005.4-5.4l-2.5 2.5-2-2 2.5-2.5z',
+  'PinShot': 'M4 7h3l2-2h6l2 2h3v12H4z M12 17a3.5 3.5 0 100-7 3.5 3.5 0 000 7z',
+  'Live Map': 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z M9 4v14 M15 6v14',
+  'Company Settings': 'M12 15a3 3 0 100-6 3 3 0 000 6z M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2V21a2 2 0 11-4 0v-.1A1.7 1.7 0 007 19.3a1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00-1.2-2.9H1a2 2 0 110-4h.1A1.7 1.7 0 003 7a1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1A1.7 1.7 0 007 3.6 1.7 1.7 0 008.7 2V1a2 2 0 114 0v.1A1.7 1.7 0 0017 3.6l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1',
+  'Administration': 'M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z M9.5 12l2 2 3.5-4',
+  'Integrations': 'M14 7l3-3a3.5 3.5 0 015 5l-3 3 M10 17l-3 3a3.5 3.5 0 01-5-5l3-3 M8 12l8-4 M8 16l4-4',
+  'Platform Admin': 'M2 3h20v14H2z M8 21h8 M12 17v4',
+  'Reference': 'M4 5a2 2 0 012-2h12v16H6a2 2 0 00-2 2V5z M8 7h8 M8 11h6',
+};
+---
+<Site
+  title="Documentation — Klees"
+  description="Klees documentation: quickstart, time tracking, jobs, scheduling, reports, payroll integrations, PinShot, Live Map, API, security."
+>
+  <PageHero
+    title="Documentation"
+    sub="Everything you need to roll out Klees, from first sign-up to payroll integration to API hooks."
+  >
+    <div class="reveal mt-8 w-full max-w-xl">
+      <a href="/search" class="group flex h-12 w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-500 shadow-sm transition-colors hover:border-primary-400 hover:text-primary-700">
+        <svg class="h-4 w-4 text-slate-400 transition-colors group-hover:text-primary-600" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M10 18a8 8 0 100-16 8 8 0 000 16z"/></svg>
+        Search the docs…
+      </a>
+    </div>
+  </PageHero>
+
+  <section class="max-w-6xl mx-auto px-6 py-16 lg:py-20">
+    {sectionOrder.filter(s => sections[s]).map(s => (
+      <div class="mb-14 last:mb-0">
+        <div class="mb-5 flex items-center gap-3">
+          <span class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-700">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d={sectionIcons[s]}/></svg>
+          </span>
+          <h2 class="font-display text-xl font-bold tracking-tight text-ink">{s}</h2>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3" data-stagger>
+          {sections[s].map((d: DocEntry) => (
+            <a href={`/docs/${d.slug}/`} class="reveal group flex flex-col rounded-2xl border border-slate-200 bg-white p-5 transition-all hover:border-primary-300 hover:shadow-md hover:shadow-primary-500/5">
+              <h3 class="flex items-center justify-between gap-2 font-display font-bold text-ink">
+                {d.data.title}
+                <svg class="h-4 w-4 flex-shrink-0 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-primary-600" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+              </h3>
+              <p class="mt-1 text-sm leading-relaxed text-slate-600">{d.data.description}</p>
+            </a>
+          ))}
+        </div>
+      </div>
+    ))}
+  </section>
+</Site>
