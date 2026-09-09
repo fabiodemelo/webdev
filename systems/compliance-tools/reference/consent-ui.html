@@ -1,0 +1,192 @@
+<!--
+  Legal Compliance Kit — default consent UI (banner + preferences modal).
+  ONE shared design, themed per-site by overriding the `--lc-*` CSS variables
+  in §THEME below. Framework-agnostic: drop this markup+CSS+JS into any site
+  (or port the structure into a React/Vue component keeping the same classes).
+
+  Wiring: reads mode/categories from GET /compliance/config, records choice via
+  POST /compliance/consent (stubbed with localStorage fallback here). Accept and
+  Reject have EQUAL prominence (ePrivacy). No cookie wall. Keyboard + ARIA ready.
+-->
+
+<style>
+/* ─────────────────────────────────────────────────────────────
+   §THEME — a site overrides ONLY these tokens to brand the UI.
+   Defaults are neutral; drop a :root override with your palette.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --lc-accent:        #2b4b6a;   /* primary buttons, active toggle, links */
+  --lc-accent-contrast:#ffffff;  /* text on accent */
+  --lc-surface:       #ffffff;   /* banner / modal background */
+  --lc-text:          #1f2937;   /* body text */
+  --lc-muted:         #6b7280;   /* secondary text */
+  --lc-line:          #e2e8f0;   /* borders / dividers */
+  --lc-overlay:       rgba(15,23,42,.55); /* modal backdrop */
+  --lc-radius:        14px;      /* corner radius */
+  --lc-shadow:        0 10px 40px rgba(15,23,42,.18);
+  --lc-font:          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-lc-theme="light"]){
+    --lc-surface:#0f172a; --lc-text:#e5e7eb; --lc-muted:#94a3b8;
+    --lc-line:#1e293b; --lc-overlay:rgba(0,0,0,.6);
+    --lc-shadow:0 10px 40px rgba(0,0,0,.5);
+  }
+}
+
+/* ── Structure (do NOT re-theme here; use tokens above) ────────── */
+.lc-banner,.lc-modal,.lc-modal *{box-sizing:border-box}
+.lc-banner{
+  position:fixed; left:50%; bottom:20px; transform:translateX(-50%);
+  width:min(680px,calc(100% - 32px)); z-index:2147483646;
+  background:var(--lc-surface); color:var(--lc-text); font-family:var(--lc-font);
+  border:1px solid var(--lc-line); border-radius:var(--lc-radius);
+  box-shadow:var(--lc-shadow); padding:20px 22px;
+}
+.lc-banner h2{margin:0 0 6px; font-size:15px; font-weight:700}
+.lc-banner p{margin:0 0 14px; font-size:13px; line-height:1.5; color:var(--lc-muted)}
+.lc-banner a{color:var(--lc-accent); text-decoration:underline}
+.lc-actions{display:flex; flex-wrap:wrap; gap:10px}
+.lc-btn{
+  flex:1 1 auto; min-width:120px; cursor:pointer; font:inherit; font-size:13px;
+  font-weight:600; padding:11px 16px; border-radius:10px; border:1px solid var(--lc-line);
+  background:var(--lc-surface); color:var(--lc-text); transition:filter .15s,background .15s;
+}
+.lc-btn:hover{filter:brightness(.97)}
+.lc-btn--primary{background:var(--lc-accent); color:var(--lc-accent-contrast); border-color:var(--lc-accent)}
+.lc-btn:focus-visible{outline:2px solid var(--lc-accent); outline-offset:2px}
+
+.lc-modal[hidden]{display:none}
+.lc-modal{position:fixed; inset:0; z-index:2147483647; display:flex;
+  align-items:center; justify-content:center; padding:16px; background:var(--lc-overlay)}
+.lc-modal__panel{
+  width:min(560px,100%); max-height:85vh; overflow:auto; background:var(--lc-surface);
+  color:var(--lc-text); font-family:var(--lc-font); border-radius:var(--lc-radius);
+  box-shadow:var(--lc-shadow); padding:24px}
+.lc-modal__panel h2{margin:0 0 4px; font-size:18px}
+.lc-modal__panel .lc-sub{margin:0 0 18px; font-size:13px; color:var(--lc-muted)}
+.lc-cat{border:1px solid var(--lc-line); border-radius:12px; padding:14px 16px; margin-bottom:12px}
+.lc-cat__head{display:flex; align-items:center; justify-content:space-between; gap:12px}
+.lc-cat__head strong{font-size:14px}
+.lc-cat__desc{margin:6px 0 0; font-size:12.5px; line-height:1.5; color:var(--lc-muted)}
+/* accessible toggle */
+.lc-switch{position:relative; width:42px; height:24px; flex:0 0 auto}
+.lc-switch input{position:absolute; opacity:0; width:100%; height:100%; margin:0; cursor:pointer}
+.lc-switch span{position:absolute; inset:0; background:var(--lc-line); border-radius:999px; transition:background .15s}
+.lc-switch span::after{content:""; position:absolute; top:3px; left:3px; width:18px; height:18px;
+  background:#fff; border-radius:50%; transition:transform .15s}
+.lc-switch input:checked + span{background:var(--lc-accent)}
+.lc-switch input:checked + span::after{transform:translateX(18px)}
+.lc-switch input:disabled + span{opacity:.55}
+.lc-switch input:focus-visible + span{outline:2px solid var(--lc-accent); outline-offset:2px}
+.lc-modal__foot{display:flex; flex-wrap:wrap; gap:10px; margin-top:18px}
+
+@media (max-width:520px){ .lc-btn{flex:1 1 100%} }
+@media (prefers-reduced-motion:reduce){ .lc-btn,.lc-switch span,.lc-switch span::after{transition:none} }
+</style>
+
+<!-- ── Banner ─────────────────────────────────────────────────── -->
+<section class="lc-banner" role="dialog" aria-modal="false" aria-labelledby="lc-b-title" data-testid="consent-banner" hidden>
+  <h2 id="lc-b-title">We value your privacy</h2>
+  <p>We use cookies to run the site and, with your consent, to improve it and personalize content.
+     See our <a href="/cookies">Cookie Policy</a> and <a href="/privacy">Privacy Policy</a>.</p>
+  <div class="lc-actions">
+    <button class="lc-btn" data-lc="reject" data-testid="consent-reject">Reject all</button>
+    <button class="lc-btn" data-lc="prefs"  data-testid="consent-prefs">Manage preferences</button>
+    <button class="lc-btn lc-btn--primary" data-lc="accept" data-testid="consent-accept">Accept all</button>
+  </div>
+</section>
+
+<!-- ── Preferences modal ──────────────────────────────────────── -->
+<div class="lc-modal" role="dialog" aria-modal="true" aria-labelledby="lc-m-title" data-testid="consent-modal" hidden>
+  <div class="lc-modal__panel" data-lc-panel>
+    <h2 id="lc-m-title">Privacy preferences</h2>
+    <p class="lc-sub">Choose which categories to allow. Necessary cookies are always on.</p>
+
+    <div class="lc-cat">
+      <div class="lc-cat__head"><strong>Strictly necessary</strong>
+        <label class="lc-switch"><input type="checkbox" checked disabled aria-label="Strictly necessary (always on)"><span></span></label></div>
+      <p class="lc-cat__desc">Required for the site to function. Cannot be switched off.</p>
+    </div>
+    <div class="lc-cat">
+      <div class="lc-cat__head"><strong>Functional</strong>
+        <label class="lc-switch"><input type="checkbox" data-lc-cat="functional" aria-label="Functional"><span></span></label></div>
+      <p class="lc-cat__desc">Remembers preferences like language and region.</p>
+    </div>
+    <div class="lc-cat">
+      <div class="lc-cat__head"><strong>Analytics</strong>
+        <label class="lc-switch"><input type="checkbox" data-lc-cat="analytics" aria-label="Analytics"><span></span></label></div>
+      <p class="lc-cat__desc">Anonymous usage stats to help us improve.</p>
+    </div>
+    <div class="lc-cat">
+      <div class="lc-cat__head"><strong>Advertising</strong>
+        <label class="lc-switch"><input type="checkbox" data-lc-cat="advertising" aria-label="Advertising"><span></span></label></div>
+      <p class="lc-cat__desc">Used to personalize ads and measure campaigns.</p>
+    </div>
+
+    <div class="lc-modal__foot">
+      <button class="lc-btn" data-lc="reject" data-testid="modal-reject">Reject all</button>
+      <button class="lc-btn lc-btn--primary" data-lc="save" data-testid="modal-save">Save preferences</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Minimal controller — swap the API base + selectors to integrate.
+   In opt-in mode (EU/UK/DACH) the banner shows until a choice is made and
+   non-essential scripts stay blocked until then. */
+(function(){
+  var API = (window.LC_API || '') + '/compliance';
+  var KEY = 'lc-consent-v1';
+  var banner = document.querySelector('.lc-banner');
+  var modal  = document.querySelector('.lc-modal');
+  var lastFocus = null;
+
+  function saved(){ try{ return JSON.parse(localStorage.getItem(KEY)||'null'); }catch(e){ return null; } }
+  function persist(cats){
+    try{ localStorage.setItem(KEY, JSON.stringify({cats:cats, ts:Date.now()})); }catch(e){}
+    // Best-effort server record (proof of consent). Fire-and-forget.
+    try{ fetch(API+'/consent',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({categories:cats, cmp_version:'1'})}); }catch(e){}
+    applyScripts(cats);
+  }
+  function applyScripts(cats){
+    // Load <script type="text/plain" data-lc-category="analytics"> only when allowed.
+    document.querySelectorAll('script[type="text/plain"][data-lc-category]').forEach(function(s){
+      if(cats[s.getAttribute('data-lc-category')] && !s.dataset.lcLoaded){
+        var n=document.createElement('script');
+        if(s.src) n.src=s.src; else n.textContent=s.textContent;
+        document.head.appendChild(n); s.dataset.lcLoaded='1';
+      }
+    });
+  }
+  function allOn(){ return {functional:true,analytics:true,advertising:true}; }
+  function allOff(){ return {functional:false,analytics:false,advertising:false}; }
+  function fromModal(){
+    var c={}; modal.querySelectorAll('[data-lc-cat]').forEach(function(i){ c[i.getAttribute('data-lc-cat')]=i.checked; }); return c;
+  }
+  function show(el){ el.hidden=false; } function hide(el){ el.hidden=true; }
+  function openModal(){ lastFocus=document.activeElement; show(modal);
+    var f=modal.querySelector('input:not([disabled]),button'); if(f)f.focus(); }
+  function closeModal(){ hide(modal); if(lastFocus)lastFocus.focus(); }
+
+  document.addEventListener('click', function(e){
+    var b=e.target.closest('[data-lc]'); if(!b)return;
+    var a=b.getAttribute('data-lc');
+    if(a==='accept'){ persist(allOn()); hide(banner); }
+    else if(a==='reject'){ persist(allOff()); hide(banner); closeModal(); }
+    else if(a==='prefs'){ openModal(); }
+    else if(a==='save'){ persist(fromModal()); closeModal(); hide(banner); }
+  });
+  // Esc closes modal; backdrop click closes; basic focus trap.
+  modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !modal.hidden) closeModal(); });
+
+  // Boot: if already chosen, apply and stay hidden; else show banner.
+  var s=saved();
+  if(s && s.cats){ applyScripts(s.cats); }
+  else { show(banner); }
+  // Expose a hook so a footer "Cookie settings" link can reopen prefs.
+  window.LCConsent = { open:openModal, reset:function(){ localStorage.removeItem(KEY); location.reload(); } };
+})();
+</script>

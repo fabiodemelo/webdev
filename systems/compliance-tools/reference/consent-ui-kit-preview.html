@@ -1,0 +1,283 @@
+<title>Consent &amp; Accessibility Kit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* ── page chrome tokens (follow viewer theme, 3-state) ───────── */
+:root{
+  --bg:#eef1f5; --panel:#ffffff; --ink:#1a2430; --muted:#5b6675; --line:#dde3ea;
+  --rail-accent:#2b4b6a; --focus:#2b4b6a;
+  --disp:"Archivo",system-ui,sans-serif; --body:"Public Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1017; --panel:#141b25; --ink:#e7ecf2; --muted:#93a1b3; --line:#243040; --rail-accent:#6ea3d6; --focus:#6ea3d6;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0c1017; --panel:#141b25; --ink:#e7ecf2; --muted:#93a1b3; --line:#243040; --rail-accent:#6ea3d6; --focus:#6ea3d6;
+}
+*{box-sizing:border-box}
+body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--body);
+  font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;}
+h1,h2,h3{font-family:var(--disp); text-wrap:balance; margin:0}
+.wrap{display:grid; grid-template-columns:320px 1fr; min-height:100vh}
+@media (max-width:840px){ .wrap{grid-template-columns:1fr} }
+
+.rail{background:var(--panel); border-right:1px solid var(--line); padding:26px 22px; display:flex; flex-direction:column; gap:22px; position:sticky; top:0; align-self:start; max-height:100vh; overflow:auto}
+@media (max-width:840px){ .rail{position:static; max-height:none; border-right:0; border-bottom:1px solid var(--line)} }
+.brandmark{display:flex; align-items:center; gap:10px}
+.brandmark .dot{width:30px;height:30px;border-radius:8px;background:var(--rail-accent);display:grid;place-items:center;color:#fff;font-family:var(--disp);font-weight:800;font-size:15px}
+.brandmark h1{font-size:17px; font-weight:800; letter-spacing:-.01em}
+.brandmark p{margin:1px 0 0; font-size:11.5px; color:var(--muted)}
+.rail section{display:flex; flex-direction:column; gap:11px}
+.rail .lbl{font-size:11px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted)}
+.seg{display:flex; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:3px}
+.seg button{flex:1; border:0; background:transparent; color:var(--muted); font:inherit; font-size:12.5px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--panel); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.swatches{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
+.swatch{cursor:pointer; border:1px solid var(--line); border-radius:9px; padding:7px 4px; background:var(--bg); display:flex; flex-direction:column; align-items:center; gap:5px; font-size:10.5px; color:var(--muted); font-weight:600}
+.swatch b{width:100%; height:16px; border-radius:5px; display:block}
+.swatch[aria-pressed="true"]{border-color:var(--rail-accent); box-shadow:0 0 0 2px color-mix(in srgb,var(--rail-accent) 25%,transparent)}
+.field{display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:13px}
+.field input[type=color]{inline-size:34px; block-size:26px; padding:0; border:1px solid var(--line); border-radius:6px; background:none; cursor:pointer}
+.field input[type=range]{flex:1; accent-color:var(--rail-accent)}
+.rail .btn{font:inherit; font-size:13px; font-weight:600; padding:10px 12px; border-radius:9px; border:1px solid var(--line); background:var(--bg); color:var(--ink); cursor:pointer; text-align:left}
+.rail .btn:hover{border-color:var(--rail-accent)}
+:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+.note{font-size:11.5px; color:var(--muted); line-height:1.5}
+.note code{font-family:var(--mono); font-size:11px; background:var(--bg); padding:1px 5px; border-radius:4px; border:1px solid var(--line)}
+
+.canvas{position:relative; padding:34px; overflow:hidden}
+.canvas h2{font-size:13px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin-bottom:16px}
+
+.stage{
+  --lc-accent:#2b4b6a; --lc-accent-contrast:#ffffff; --lc-surface:#ffffff;
+  --lc-text:#1f2933; --lc-muted:#66707c; --lc-line:#e4e8ee; --lc-overlay:rgba(15,23,42,.5);
+  --lc-radius:14px; --lc-shadow:0 14px 44px rgba(15,23,42,.16); --lc-fs:1;
+  position:relative; border:1px solid var(--line); border-radius:18px; overflow:hidden;
+  background:radial-gradient(120% 80% at 10% 0%, color-mix(in srgb,var(--lc-accent) 8%,var(--lc-surface)) 0%, var(--lc-surface) 60%);
+  min-height:560px; box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--lc-line) 60%,transparent);
+}
+.stage.dark{ --lc-surface:#121821; --lc-text:#e7ecf2; --lc-muted:#94a3b8; --lc-line:#26303d; --lc-overlay:rgba(0,0,0,.6); --lc-shadow:0 14px 44px rgba(0,0,0,.5) }
+.faux{padding:30px 34px; font-size:calc(14px * var(--lc-fs)); color:var(--lc-text); font-family:var(--body)}
+.faux .kick{font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--lc-accent); font-weight:600}
+.faux h3{font-family:var(--disp); font-weight:800; font-size:calc(30px * var(--lc-fs)); letter-spacing:-.02em; margin:8px 0 10px; color:var(--lc-text)}
+.faux p{max-width:60ch; color:var(--lc-muted); margin:0 0 14px}
+.faux .ghost{height:12px; border-radius:6px; background:color-mix(in srgb,var(--lc-line) 70%,transparent)}
+.faux .ghost.w1{width:80%} .faux .ghost.w2{width:64%} .faux .ghost.w3{width:72%}
+.faux .stack{display:flex; flex-direction:column; gap:10px; margin-top:22px; max-width:60ch}
+body.hl-links .stage a{text-decoration:underline; text-underline-offset:2px}
+
+.stage.hc{ --lc-text:#000; --lc-muted:#1a1a1a; --lc-line:#000; --lc-surface:#fff }
+.stage.hc.dark{ --lc-text:#fff; --lc-muted:#e8e8e8; --lc-line:#fff; --lc-surface:#000 }
+.stage.dys .faux, .stage.dys .lc-banner, .stage.dys .lc-modal, .stage.dys .a11y-panel{ font-family:"Comic Sans MS","Public Sans",sans-serif; letter-spacing:.02em }
+
+.lc-banner{position:absolute; left:50%; bottom:18px; transform:translateX(-50%);
+  width:min(660px,calc(100% - 36px)); background:var(--lc-surface); color:var(--lc-text);
+  border:1px solid var(--lc-line); border-radius:var(--lc-radius); box-shadow:var(--lc-shadow);
+  padding:20px 22px; font-family:var(--body); z-index:5}
+.lc-banner .tag{font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--lc-accent); font-weight:600}
+.lc-banner h4{font-family:var(--disp); font-weight:700; font-size:16px; margin:6px 0 6px; color:var(--lc-text)}
+.lc-banner p{margin:0 0 15px; font-size:13px; line-height:1.55; color:var(--lc-muted)}
+.lc-banner a{color:var(--lc-accent)}
+.lc-actions{display:flex; flex-wrap:wrap; gap:10px}
+.lc-btn{flex:1 1 auto; min-width:118px; cursor:pointer; font:inherit; font-family:var(--body); font-size:13px; font-weight:600;
+  padding:11px 16px; border-radius:calc(var(--lc-radius) - 4px); border:1px solid var(--lc-line);
+  background:var(--lc-surface); color:var(--lc-text); transition:filter .15s}
+.lc-btn:hover{filter:brightness(.97)}
+.lc-btn--primary{background:var(--lc-accent); color:var(--lc-accent-contrast); border-color:var(--lc-accent)}
+.lc-btn:focus-visible{outline:2px solid var(--lc-accent); outline-offset:2px}
+
+.lc-modal{position:absolute; inset:0; z-index:9; display:none; align-items:center; justify-content:center; padding:20px; background:var(--lc-overlay)}
+.lc-modal.open{display:flex}
+.lc-panel{width:min(500px,100%); max-height:88%; overflow:auto; background:var(--lc-surface); color:var(--lc-text);
+  border-radius:var(--lc-radius); box-shadow:var(--lc-shadow); padding:24px; font-family:var(--body)}
+.lc-panel h4{font-family:var(--disp); font-weight:700; font-size:19px; margin:0 0 3px; color:var(--lc-text)}
+.lc-panel .sub{margin:0 0 16px; font-size:12.5px; color:var(--lc-muted)}
+.lc-cat{border:1px solid var(--lc-line); border-radius:12px; padding:13px 15px; margin-bottom:10px}
+.lc-cat .hd{display:flex; align-items:center; justify-content:space-between; gap:12px}
+.lc-cat strong{font-size:13.5px} .lc-cat p{margin:5px 0 0; font-size:12px; line-height:1.5; color:var(--lc-muted)}
+.sw{position:relative; width:42px; height:24px; flex:0 0 auto}
+.sw input{position:absolute; inset:0; opacity:0; margin:0; cursor:pointer}
+.sw i{position:absolute; inset:0; background:var(--lc-line); border-radius:999px; transition:background .15s}
+.sw i::after{content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; background:#fff; border-radius:50%; transition:transform .15s; box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.sw input:checked + i{background:var(--lc-accent)}
+.sw input:checked + i::after{transform:translateX(18px)}
+.sw input:disabled + i{opacity:.5}
+.sw input:focus-visible + i{outline:2px solid var(--lc-accent); outline-offset:2px}
+.lc-foot{display:flex; gap:10px; margin-top:16px}
+
+.lc-dns{position:absolute; top:16px; right:16px; display:flex; gap:8px; align-items:center; z-index:4; font-family:var(--body)}
+.lc-chip{font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:999px; border:1px solid var(--lc-line); background:var(--lc-surface); color:var(--lc-text); cursor:pointer}
+.lc-chip.gpc{color:#0b8457; border-color:color-mix(in srgb,#0b8457 40%,var(--lc-line)); background:color-mix(in srgb,#0b8457 12%,var(--lc-surface)); cursor:default}
+
+.a11y-fab{position:absolute; left:16px; bottom:16px; z-index:6; width:48px; height:48px; border-radius:50%;
+  border:1px solid var(--lc-line); background:var(--lc-accent); color:var(--lc-accent-contrast); cursor:pointer;
+  box-shadow:var(--lc-shadow); display:grid; place-items:center}
+.a11y-fab svg{width:24px; height:24px}
+.a11y-panel{position:absolute; left:16px; bottom:74px; z-index:8; width:270px; display:none;
+  background:var(--lc-surface); color:var(--lc-text); border:1px solid var(--lc-line); border-radius:var(--lc-radius);
+  box-shadow:var(--lc-shadow); padding:16px; font-family:var(--body)}
+.a11y-panel.open{display:block}
+.a11y-panel h4{font-family:var(--disp); font-weight:700; font-size:15px; margin:0 0 12px}
+.a11y-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid var(--lc-line); font-size:13px}
+.a11y-row:first-of-type{border-top:0}
+.a11y-row .mini{display:flex; gap:6px}
+.a11y-row .mini button{width:28px; height:26px; border:1px solid var(--lc-line); background:var(--lc-surface); color:var(--lc-text); border-radius:7px; cursor:pointer; font-weight:700; font-family:var(--mono)}
+.a11y-reset{width:100%; margin-top:12px; border:1px solid var(--lc-line); background:var(--lc-surface); color:var(--lc-muted); border-radius:8px; padding:8px; font:inherit; font-size:12px; cursor:pointer}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important} }
+</style>
+
+<div class="wrap">
+  <aside class="rail">
+    <div class="brandmark">
+      <div class="dot">§</div>
+      <div><h1>Consent &amp; A11y Kit</h1><p>One look · your colors</p></div>
+    </div>
+    <section>
+      <span class="lbl">Preview theme</span>
+      <div class="seg" id="stageTheme">
+        <button data-st="light" aria-pressed="true">Light</button>
+        <button data-st="dark" aria-pressed="false">Dark</button>
+      </div>
+    </section>
+    <section>
+      <span class="lbl">Brand preset</span>
+      <div class="swatches" id="presets">
+        <button class="swatch" data-a="#2b4b6a" aria-pressed="true"><b style="background:#2b4b6a"></b>Navy</button>
+        <button class="swatch" data-a="#0b8457"><b style="background:#0b8457"></b>Emerald</button>
+        <button class="swatch" data-a="#6d28d9"><b style="background:#6d28d9"></b>Violet</button>
+        <button class="swatch" data-a="#c2410c"><b style="background:#c2410c"></b>Rust</button>
+      </div>
+    </section>
+    <section>
+      <span class="lbl">Tokens</span>
+      <label class="field">Accent <input type="color" id="cAccent" value="#2b4b6a"></label>
+      <label class="field">Accent text <input type="color" id="cAccentText" value="#ffffff"></label>
+      <label class="field">Surface <input type="color" id="cSurface" value="#ffffff"></label>
+      <label class="field">Text <input type="color" id="cText" value="#1f2933"></label>
+      <label class="field">Corner radius <input type="range" id="cRadius" min="0" max="24" value="14"></label>
+    </section>
+    <section>
+      <span class="lbl">Try the widgets</span>
+      <button class="btn" id="openPrefs">Open preferences modal</button>
+      <button class="btn" id="openA11y">Toggle accessibility panel</button>
+      <button class="btn" id="showBanner">Re-show cookie banner</button>
+    </section>
+    <p class="note">Every widget reads one token set. A site brands the whole kit by overriding <code>--lc-accent</code>, <code>--lc-surface</code>, <code>--lc-text</code>, <code>--lc-radius</code> — nothing else. Body face is <b>Public Sans</b> (US Web Design System).</p>
+  </aside>
+
+  <main class="canvas">
+    <h2>Live preview — the shared components</h2>
+    <div class="stage" id="stage">
+      <div class="faux">
+        <span class="kick">Your website</span>
+        <h3>Compliance that matches your brand</h3>
+        <p>Placeholder site content sitting behind the compliance widgets, so you can judge contrast and placement against a real page. Read our <a href="#">Privacy Policy</a> and <a href="#">Cookie Policy</a>.</p>
+        <div class="stack"><span class="ghost w1"></span><span class="ghost w2"></span><span class="ghost w3"></span></div>
+      </div>
+
+      <div class="lc-dns">
+        <span class="lc-chip gpc" title="Global Privacy Control detected">GPC honored</span>
+        <button class="lc-chip" id="dnsBtn">Do Not Sell / Share</button>
+      </div>
+
+      <button class="a11y-fab" id="a11yFab" aria-label="Accessibility options" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4" r="1.6"/><path d="M4 8h16M9 8l1 5m5-5l-1 5m-2-5v3m-2 8l1-6m2 6l-1-6"/></svg>
+      </button>
+      <div class="a11y-panel" id="a11yPanel" role="dialog" aria-label="Accessibility options">
+        <h4>Accessibility</h4>
+        <div class="a11y-row">Text size <span class="mini"><button data-fs="down" aria-label="Decrease text">A−</button><button data-fs="up" aria-label="Increase text">A+</button></span></div>
+        <div class="a11y-row">High contrast <label class="sw"><input type="checkbox" id="axHc" aria-label="High contrast"><i></i></label></div>
+        <div class="a11y-row">Highlight links <label class="sw"><input type="checkbox" id="axLinks" aria-label="Highlight links"><i></i></label></div>
+        <div class="a11y-row">Readable font <label class="sw"><input type="checkbox" id="axDys" aria-label="Readable font"><i></i></label></div>
+        <div class="a11y-row">Reduce motion <label class="sw"><input type="checkbox" id="axMotion" aria-label="Reduce motion"><i></i></label></div>
+        <button class="a11y-reset" id="axReset">Reset accessibility</button>
+      </div>
+
+      <section class="lc-banner" id="banner" role="dialog" aria-modal="false" aria-label="Cookie consent">
+        <span class="tag">Privacy</span>
+        <h4>We value your privacy</h4>
+        <p>We use cookies to run the site and, with your consent, to improve it and personalize content. Reject is as easy as accept.</p>
+        <div class="lc-actions">
+          <button class="lc-btn" data-act="reject">Reject all</button>
+          <button class="lc-btn" data-act="prefs">Manage preferences</button>
+          <button class="lc-btn lc-btn--primary" data-act="accept">Accept all</button>
+        </div>
+      </section>
+
+      <div class="lc-modal" id="modal" role="dialog" aria-modal="true" aria-label="Privacy preferences">
+        <div class="lc-panel">
+          <h4>Privacy preferences</h4>
+          <p class="sub">Choose which categories to allow. Necessary cookies are always on.</p>
+          <div class="lc-cat"><div class="hd"><strong>Strictly necessary</strong><label class="sw"><input type="checkbox" checked disabled><i></i></label></div><p>Required for the site to function.</p></div>
+          <div class="lc-cat"><div class="hd"><strong>Functional</strong><label class="sw"><input type="checkbox"><i></i></label></div><p>Remembers preferences like language and region.</p></div>
+          <div class="lc-cat"><div class="hd"><strong>Analytics</strong><label class="sw"><input type="checkbox"><i></i></label></div><p>Anonymous usage stats to help us improve.</p></div>
+          <div class="lc-cat"><div class="hd"><strong>Advertising</strong><label class="sw"><input type="checkbox"><i></i></label></div><p>Personalize ads and measure campaigns.</p></div>
+          <div class="lc-foot">
+            <button class="lc-btn" data-act="reject">Reject all</button>
+            <button class="lc-btn lc-btn--primary" data-act="save">Save preferences</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement, stage=document.getElementById('stage'), body=document.body;
+  var banner=document.getElementById('banner'), modal=document.getElementById('modal');
+  function setVar(k,v){ stage.style.setProperty(k,v); }
+  document.getElementById('cAccent').oninput=e=>setVar('--lc-accent',e.target.value);
+  document.getElementById('cAccentText').oninput=e=>setVar('--lc-accent-contrast',e.target.value);
+  document.getElementById('cSurface').oninput=e=>setVar('--lc-surface',e.target.value);
+  document.getElementById('cText').oninput=e=>setVar('--lc-text',e.target.value);
+  document.getElementById('cRadius').oninput=e=>setVar('--lc-radius',e.target.value+'px');
+  document.querySelectorAll('#presets .swatch').forEach(function(s){
+    s.onclick=function(){
+      document.querySelectorAll('#presets .swatch').forEach(x=>x.setAttribute('aria-pressed','false'));
+      s.setAttribute('aria-pressed','true');
+      var a=s.dataset.a; setVar('--lc-accent',a); document.getElementById('cAccent').value=a;
+      root.style.setProperty('--rail-accent',a);
+    };
+  });
+  document.querySelectorAll('#stageTheme button').forEach(function(b){
+    b.onclick=function(){
+      document.querySelectorAll('#stageTheme button').forEach(x=>x.setAttribute('aria-pressed','false'));
+      b.setAttribute('aria-pressed','true');
+      stage.classList.toggle('dark', b.dataset.st==='dark');
+    };
+  });
+  function openModal(){ modal.classList.add('open'); }
+  function closeModal(){ modal.classList.remove('open'); }
+  document.getElementById('openPrefs').onclick=openModal;
+  document.getElementById('showBanner').onclick=()=>banner.style.display='block';
+  document.querySelectorAll('[data-act]').forEach(function(b){
+    b.onclick=function(){
+      var a=b.dataset.act;
+      if(a==='prefs') openModal();
+      else if(a==='save') closeModal();
+      if(a==='accept'||a==='reject'){ banner.style.display='none'; closeModal(); }
+    };
+  });
+  modal.onclick=e=>{ if(e.target===modal) closeModal(); };
+  document.getElementById('dnsBtn').onclick=function(){ this.textContent='Opt-out saved ✓'; this.style.color='#0b8457'; };
+  var fab=document.getElementById('a11yFab'), panel=document.getElementById('a11yPanel'), fs=1;
+  document.getElementById('openA11y').onclick=toggleA11y;
+  fab.onclick=toggleA11y;
+  function toggleA11y(){ var o=panel.classList.toggle('open'); fab.setAttribute('aria-expanded',o); }
+  document.querySelectorAll('[data-fs]').forEach(function(b){
+    b.onclick=function(){ fs=Math.min(1.5,Math.max(.85, fs+(b.dataset.fs==='up'?.1:-.1))); setVar('--lc-fs',fs.toFixed(2)); };
+  });
+  document.getElementById('axHc').onchange=e=>stage.classList.toggle('hc',e.target.checked);
+  document.getElementById('axLinks').onchange=e=>body.classList.toggle('hl-links',e.target.checked);
+  document.getElementById('axDys').onchange=e=>stage.classList.toggle('dys',e.target.checked);
+  document.getElementById('axMotion').onchange=e=>root.style.scrollBehavior=e.target.checked?'auto':'';
+  document.getElementById('axReset').onclick=function(){
+    fs=1; setVar('--lc-fs','1'); stage.classList.remove('hc','dys'); body.classList.remove('hl-links');
+    ['axHc','axLinks','axDys','axMotion'].forEach(id=>document.getElementById(id).checked=false);
+  };
+})();
+</script>
