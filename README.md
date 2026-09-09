@@ -65,9 +65,11 @@ Install a skill: copy `skills/<name>/` to `~/.claude/skills/<name>/` (or `dmcode
 | Financial dashboard, forecast & reports | Billing / analytics / dunning ops | FastAPI + MySQL + React + Stripe | [SPEC.md](systems/financial-dashboard-system/SPEC.md) |
 | Software licensing + SDK system | Licensing / anti-piracy | Express + TS + MySQL + Ed25519 + React | [SPEC.md](systems/software-licensing-system/SPEC.md) |
 | CDN / object storage integration | Infrastructure / file storage | DO Spaces (S3) + PHP/Node/Python + MySQL | [SPEC.md](systems/cdn-object-storage/SPEC.md) |
+| Compliance Tools (cookies · a11y · privacy) | Legal / privacy / accessibility | FastAPI/Express/PHP + MySQL + themeable JS/React | [SPEC.md](systems/compliance-tools/SPEC.md) |
 | Vault module (biz info + credential manager) | Admin / company records / secrets | PHP + MySQL + vanilla JS (stack-neutral spec) | [SPEC.md](systems/vault-module/SPEC.md) |
 | Documentation site (product docs section) | Marketing site / product docs | Astro + MDX + Tailwind + Pagefind + Playwright | [SPEC.md](systems/documentation-site/SPEC.md) |
 | SaaS pricing page (live plans + savings calc) | Marketing site / pricing & conversion | Astro + Tailwind + any plans API + JSON-LD | [SPEC.md](systems/saas-pricing-page/SPEC.md) |
+| Scheduled news / articles (self-publishing) | Marketing site / editorial & SEO | Static HTML + vanilla JS + Python + PHP (no deps) | [SPEC.md](systems/scheduled-news-articles/SPEC.md) |
 
 ### Playbooks
 
