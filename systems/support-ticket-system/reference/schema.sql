@@ -15,7 +15,7 @@ CREATE TABLE `tickets` (
   `priority`        ENUM('low','medium','high') NOT NULL DEFAULT 'medium',
   `status`          VARCHAR(50)  NOT NULL DEFAULT 'open',   -- value from ticket_settings
   `is_private`      TINYINT(1)   NOT NULL DEFAULT 0,
-  `due_date`        VARCHAR(20)  DEFAULT NULL,              -- 'YYYY-MM-DD'
+  `due_date`        DATE         DEFAULT NULL,              -- ref build used VARCHAR(20); DATE avoids truncated ISO strings
   `created_by`      INT          NOT NULL DEFAULT 0,
   `created_by_name` VARCHAR(255) DEFAULT NULL,
   `closed_at`       DATETIME     DEFAULT NULL,
@@ -167,6 +167,31 @@ CREATE TABLE `ticket_user_prefs` (
 --   "columns":        1,                        -- 1..3
 --   "showTeam":       true
 -- }
+
+-- ─────────────────────────────────────────────────────────────
+-- Ticket number sequence: each create inserts a row and uses insert_id as
+-- tickets.ticket_number. Never delete rows. Reserve a legacy range before an
+-- import by bulk-inserting rows (or setting AUTO_INCREMENT).
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE `ticket_numbers` (
+  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ─────────────────────────────────────────────────────────────
+-- Feature flags (toggled from the settings page)
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE `ticket_features` (
+  `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `feature_key` VARCHAR(50) NOT NULL,
+  `enabled`     TINYINT(1) NOT NULL DEFAULT 0,
+  `updated_at`  TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_feature_key` (`feature_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+INSERT INTO `ticket_features` (`feature_key`,`enabled`) VALUES ('time_logging', 0);
 
 -- ─────────────────────────────────────────────────────────────
 -- Seed defaults (statuses / priorities / departments)

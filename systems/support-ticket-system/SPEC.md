@@ -1,8 +1,10 @@
 # System: Support Ticket System
 
-Full internal helpdesk / support ticket system. Authenticated users open tickets, exchange threaded **comments**, attach **multiple files**, and admins triage with **assignees, members/watchers, priorities, departments, configurable statuses, time tracking, an activity log, and stats**. Status changes, assignment, and updates fire **email + in-app + push notifications**. Tickets can be **private**, carry **due dates** with overdue reminders, and are scoped by **role-based visibility levels**. The admin lands on a **dashboard** with per-status stat cards, **saved-per-user filters** (status, priority, and a Mine / My group / All / Private scope), and a **ticket efficiency meter** that scores how long closed tickets stayed assigned to each person.
+Full internal helpdesk / support ticket system. Authenticated users open tickets, exchange threaded **comments**, attach **multiple files**, and admins triage with **assignees, members/watchers, priorities, departments, configurable statuses, time tracking, an activity log, and stats**. Status changes, assignment, and updates fire **email + in-app + push notifications**. Tickets can be **private**, carry **due dates** with overdue reminders, and are scoped by **role-based visibility levels**. The admin lands on a **dashboard** with per-status stat cards, **saved-per-user filters** (status, priority, and a Mine / My group / All / Private scope), and a **ticket efficiency meter** that scores how long closed tickets stayed assigned to each person. A **"Needs attention" sidebar alert** shows each user their overdue assigned tickets everywhere in the portal, refreshed live. Ticket numbers come from a dedicated **sequence table**, optional features (time logging) sit behind **feature flags**, and mobile users get **push events** for assignment, membership, updates and due/overdue dates.
 
-**Type:** full feature subsystem (tickets + 6 child entities + configurable settings + dual API + admin/mobile UI + notifications).
+**Type:** full feature subsystem (tickets + 6 child entities + number sequence + feature flags + configurable settings + per-user preferences + dual API + admin/mobile UI + notifications + live attention alert).
+
+> **Last reviewed against the reference build:** 2026-10-19 (Alta Apps portal).
 
 **Reference implementations:**
 - **A — Alta Apps (richer, this build):** PHP + MySQL + React admin UI (`tickets-ui`) + JWT mobile API + S3-style object storage + push (Expo/FCM). The feature-complete reference.
@@ -19,7 +21,7 @@ Full internal helpdesk / support ticket system. Authenticated users open tickets
 >
 > When porting the Alta (PHP) feature set below, **fold it into that Express/TS module** — do not add a parallel PHP service. Match the portal's `requireAdmin()` gating, envelope helpers, and settings singleton. Reference DDL in [reference/schema.sql](reference/schema.sql) is the target-shape schema; align `02-tickets-v2.sql` to it.
 
-> **Related:** notifications reuse [email-template-system](../email-template-system/SPEC.md) (`new_ticket`, `update_ticket`, `private_ticket`, `support_reply` template keys + per-recipient `notifyOwner`).
+> **Related:** notifications reuse [email-template-system](../email-template-system/SPEC.md): events `new_ticket` / `update_ticket` / `private_ticket` map to the `ticket_new` / `ticket_edit` templates, with per-event owner / assigned copies (§8.1). Push uses the mobile token store (§8.2).
 
 > **Stack-neutral:** field names below follow the MySQL reference. Substitute "user" / "tenant" / "company" for the target's noun.
 
@@ -27,12 +29,14 @@ Full internal helpdesk / support ticket system. Authenticated users open tickets
 
 ## Visual Reference
 
-Built-result screenshots from the source app — visual guideline for re-implementation.
+Screenshots of the reference build's React admin UI (`tickets-ui`), rendered with **invented demo data**: every name, ticket and comment is fictional. Use them as the visual guideline for re-implementation.
 
 | View | Preview |
 |------|---------|
-| Admin inbox — search, status filter, ticket table (§11.2) | ![Admin inbox](preview/admin-inbox.png) |
-| Admin thread — bubbles, admin styling, attachment chip, reply box, Close (§11.4) | ![Admin thread](preview/admin-thread.png) |
+| Dashboard: per-status stat cards with "My Desk" counts, search, filter bar (status · priority · scope), My Assigned Tickets, Recent Team Tickets in two columns, efficiency meter with medals (§11.1, §13, §14) | ![Dashboard](preview/admin-dashboard.png) |
+| All Tickets: search, filter bar, order select, ticket cards in a grid (§11.2) | ![All tickets](preview/admin-inbox.png) |
+| Ticket detail: description, attachments (drop zone), per-author tinted comments, activity log, sidebar with status, priority, Assigned To / Ticket Members chips, details (§11.4) | ![Ticket detail](preview/admin-thread.png) |
+| New Ticket modal: title, description, priority, department, assignee and member chips, due date, private flag (§11.5) | ![New ticket](preview/admin-new-ticket.png) |
 
 ---
 
@@ -71,6 +75,10 @@ Each ticket has a sequential **ticket number**, a single chronological **comment
 | Notification hooks | Email templates + in-app notifications + push (`push_send_to_users`). Fire on create / assign / member-add / update / status-change. |
 | Preference store | `ticket_user_prefs` — one JSON row per user holding their dashboard filters, scope and layout. Written on every change (debounced), read on load, so a user's view follows them to any browser. |
 | Efficiency scorer | Replays each closed ticket's `reassigned` activity rows to credit elapsed time to whoever was assigned during each segment, then bands the per-user average. |
+| Number sequence | `ticket_numbers` — an auto-increment table. Each create inserts a row and uses its id as `ticket_number`, so numbering is independent of `tickets.id` and survives imports (§3.9). |
+| Feature flags | `ticket_features` — `feature_key` → `enabled`. Gates optional features (time logging) from the settings page without a deploy (§3.10). |
+| Attention counter | A small read endpoint (`overdue_counts`) returning the caller's overdue assigned tickets, polled by the portal-wide sidebar alert (§16). Computed on read, never stored. |
+| Notification helpers | Session-free functions (`notify`, `notifyOwner`, `notifyAssigned`, push sender) loadable by both APIs, so the web and mobile paths send the same notifications (§8). |
 | Dual API | Admin API (session auth) + user/mobile API (JWT auth), mirrored action logic. |
 
 ### 3. Domain Model
@@ -87,7 +95,7 @@ Each ticket has a sequential **ticket number**, a single chronological **comment
 | `priority` | `low` \| `medium` \| `high` (configurable; default `medium`). |
 | `status` | Configurable; defaults `open` \| `in_progress` \| `in_review` \| `closed`. |
 | `is_private` | Bool. Restricts visibility + flips notifications to the `private_ticket` template. |
-| `due_date` | Optional datetime. Drives overdue reminders. |
+| `due_date` | Optional date. Drives due/overdue reminders and the attention alert. Store as `DATE` (the reference build used `VARCHAR(20)`, which truncated a mobile ISO timestamp and forces `LEFT(due_date,10)` everywhere). |
 | `created_by` / `created_by_name` | Requester. |
 | `created_at` / `updated_at` | Audit. `updated_at` bumped on every child write. |
 | `closed_at` / `closed_by` / `closed_by_name` | Stamped when status → `closed`. |
@@ -108,7 +116,15 @@ Each ticket has a sequential **ticket number**, a single chronological **comment
 - **priority:** low (`#059669`), medium (`#d97706`), high (`#dc2626`)
 - **department:** General, IT, Sales, Operations, Finance
 
+**Open statuses.** Define in one place which statuses count as "open" (reference: `open`, `in_progress`, `in_review`, `awaiting_customer`). The attention alert, mobile dashboard, reminders and home-page tiles all use that one list.
+
+**Settings must drive the UI.** Status, priority and department pickers, pills, stat cards and the prefs allow-list read `ticket_settings` at runtime. Hardcoded lists drift: the reference build ended up with settings rows no screen showed and live values (`awaiting_customer`, a busy `Payroll` department) that settings didn't list.
+
 **3.8 User preference** — `ticket_user_prefs`: `user_id` (PK), `prefs` JSON, `created_at`, `updated_at`. One row per user. Holds `filterStatus[]`, `filterPriority[]`, `filterScope`, `sortBy`, `columns`, `showTeam`. See §13.
+
+**3.9 Ticket number sequence** — `ticket_numbers`: `id` (AUTO_INCREMENT PK), `created_at`. `createTicket` inserts a row and uses `insert_id` as `ticket_number`; rows are never deleted. Advantages: numbers don't depend on `tickets.id`, and a legacy range can be reserved before importing (the reference build bulk-inserted 601 rows so imported tickets kept numbers 0–672 and new ones start at 674). A failed create burns a number; that's acceptable.
+
+**3.10 Feature flag** — `ticket_features`: `id`, `feature_key` (unique), `enabled`, `updated_at`. Reference flag: `time_logging` (off by default). Exposed to the UI at page load (`window.__TICKET_CONFIG__ = {time_logging}`) and toggled from the settings page.
 
 ### 4. Ticket Lifecycle
 
@@ -119,8 +135,11 @@ Statuses are **configurable** (not hardcoded), but the default flow:
                                      └──────── reopen (set status) ┘
 ```
 - Status change writes a `status_changed` activity row (old → new).
-- Setting status `closed` stamps `closed_at`, `closed_by`, `closed_by_name`.
+- Setting status `closed` stamps `closed_at`, `closed_by`, `closed_by_name`. Re-opening clears them.
+- Closing is reserved for super admins (`level <= 1`) on **both** APIs (the mobile API enforces this; enforce it server-side everywhere).
+- Changing `due_date` re-arms the one-shot reminder flags (`reminder_sent = 0`, `overdue_sent = 0`) so the new date gets its own reminders.
 - No auto-reopen; status is explicit. Comments are always accepted regardless of status.
+- Validate a posted status against `ticket_settings` (§3.7).
 
 ### 5. Access Model & Visibility Levels
 
@@ -138,6 +157,8 @@ function visibility_filter(int $level, int $uid): array {
 - **Super admin (`level <= 1`)** → sees/acts on every ticket.
 - **Everyone else** → sees only tickets they created, are assigned to, or are a member of. Enforced on list (filter) AND on single-read (`user_can_see_ticket`) → 403/404 otherwise.
 - **Private tickets** (`is_private`) further restrict + switch update notifications to the `private_ticket` template.
+- **Every other place that counts or lists tickets applies the same visibility**: home-page tiles, mobile KPIs, "recent activity" feeds, the attention counter. A count query written outside the main API is the usual leak of org-wide or private data.
+- **The module permission gates the API too**, not just the page that loads the UI.
 
 **Filter syntax** (translated to SQL or Mongo): scalar equality, `$in`, `$nin`, `$or`, `$and`, `$text` (LIKE on title+description), plus `assignee_ids` / `member_ids`. Sort by `created_at` / `updated_at` / `ticket_number` / `due_date`. Pagination via `offset` + `limit`.
 
@@ -158,26 +179,59 @@ function visibility_filter(int $level, int $uid): array {
 4. Insert `ticket_attachments` metadata row; write `attachment_added` activity; bump `updated_at`.
 5. Read: `get` / `get_by_number` enrich each attachment with a short-lived **presigned URL** and an `is_image` flag, so the thread renders thumbnails without a second round trip. `attachment_url` returns a URL for a single key as a fallback.
 6. **Gate attachment reads on the ticket's own visibility, not on a file-module permission.** Staff who legitimately see a ticket often have no rights in the general file browser; gating on the latter 403s them out of their own attachments.
-7. Delete: `delete_attachment` removes the row + writes `attachment_deleted` activity.
+7. Delete: `delete_attachment` first proves the `object_key` belongs to that ticket (same check as `attachment_url`), then removes the stored bytes and the row and writes `attachment_deleted` activity. Never pass a client-supplied key straight to storage delete.
 
-Multiple attachments per ticket. Image types render inline as thumbnails; others as file chips.
+Multiple attachments per ticket. Image types render inline as thumbnails; others as file chips. The UI opens files through the per-attachment `url` returned by `get`, never through a general file-browser endpoint (that endpoint requires a file permission ticket users often lack).
+
+- **Unique keys per upload:** prefix the stored name with a uuid or timestamp (`tickets/<n>/<uuid>-<name>`). `{ticket}/{filename}` silently overwrites an earlier file with the same name.
+- **One attachment store for every client.** The web and mobile apps must read and write the same table, or each client sees only its own files.
+- The drop zone accepts several files at once and uploads them one after another.
 
 ### 7. Comments, Time Tracking, Activity
 
 - **Comments** — add (`comment`) / list / delete. A non-author may delete only if super admin (`level <= 1`). Adding a comment writes a `commented` activity row + bumps `updated_at`.
-- **Time entries** — `time_entry` action logs `duration_minutes` + description against the ticket; writes `time_logged` activity. Enables per-ticket effort reporting.
+- **Time entries** — `time_entry` action logs `duration_minutes` + description against the ticket; writes `time_logged` activity. Enables per-ticket effort reporting. Behind the `time_logging` feature flag (§3.10): when off, the UI hides the Time Logged card and the API refuses the action.
+- **Activity rendering** — show people by **name**, not raw id lists, for `reassigned` / `members_changed`. Compare id **sets** when deciding whether those changed, so a reorder isn't logged as a change.
 - **Activity log** — append-only, surfaced in the thread as a system timeline (who changed status, reassigned, added members, logged time, attached/removed files).
 
 ### 8. Notifications
 
-Three channels fire on mutations:
-- **Email** (via [email-template-system](../email-template-system/SPEC.md)) — `new_ticket` on create, `update_ticket` on update, `private_ticket` for private tickets, plus `notifyOwner` to the requester. Template vars: `ticket_number, title, description, status, priority, department, due_date, created_by_name, assignee_names, member_names, is_private, url`.
-- **In-app notifications** — written to the notifications collection/table for the bell feed.
-- **Push** (`push_send_to_users`) — events: `ticket_assigned` (→ new assignees), `ticket_member_added` (→ new members), `ticket_updated` (→ watchers on content change). **Never push the creator/actor about their own action.**
+Every channel fires from **both** APIs through the shared, session-free notification helpers (§2). A web action and the same action from the mobile app must notify the same people.
 
-All notification sends are best-effort: a delivery failure must NOT roll back the ticket write.
+**8.1 Email** (via [email-template-system](../email-template-system/SPEC.md)). Events map to templates:
 
-**Due-date reminders:** a cron scans tickets with a `due_date`; sends a reminder once (`reminder_sent`) before due and an overdue notice once (`overdue_sent`) after.
+| Event | Fires on | Template (reference keys) |
+|-------|----------|---------------------------|
+| `new_ticket` | create of a public ticket | `ticket_new` |
+| `update_ticket` | update that changed something | `ticket_edit` |
+| `private_ticket` | create or update of a private ticket | `ticket_edit` |
+
+- Recipients per event come from **Notification Settings**: a `notification_settings (event_type, user_id, enabled)` row per chosen user. Per-event toggles add the requester (`*_owner`) and the current assignees (`*_assigned`). Private tickets need their own owner/assigned toggles honoured, not the public ones.
+- Template vars: `ticket_number` (`#00042`), `title`, `description`, `status`, `priority`, `department`, `due_date`, `created_by_name`, `assignee_names`, `member_names`, `is_private`, `url` (deep link `…/tickets.php?ticket=00042`). Escape **every** variable for HTML email, not only the description.
+- The reference build redesigned `ticket_new` / `ticket_edit` (subject + body) on 2026-08-25; templates live in the DB, so they can change without a deploy.
+
+**8.2 Push** (Expo / FCM, mobile tokens table). Events:
+
+| Event | Recipients | Title |
+|-------|------------|-------|
+| `ticket_assigned` | newly added assignees | "Ticket assigned to you" |
+| `ticket_member_added` | newly added members | "Added to a ticket" |
+| `ticket_updated` | assignees ∪ members ∪ creator, minus the actor, minus anyone already pinged by the two events above; only when a ticket field changed (not on an assignee/member-only edit) | "Ticket updated" |
+| `ticket_due` | assignees ∪ members, from the reminder cron | "Ticket due today" / "Ticket overdue" |
+
+- Body `Ticket #N: <title>`; payload `{event, ticket_id}` so the app deep-links to the ticket.
+- Gating: an org-wide row (`user_id = 0, enabled = 0`) turns an event off for everyone; a user row with `enabled = 0` opts that user out; no row means on. Users manage their own toggles in the app; admins get org toggles on the Notification Settings page.
+- Send in batches (Expo: 100 per request, short timeout).
+
+**8.3 In-app.** The live "Needs attention" counters (§16) are the in-app signal: computed on read, no stored feed to keep in sync.
+
+**Rules.** **Never notify the actor about their own action**, on any channel (the owner and assigned copies included). Never send the same person two copies of one event. All sends are best-effort: a delivery failure must NOT roll back the ticket write.
+
+**8.4 Due-date reminders.** A daily cron (08:00 local) scans open-status tickets (§3.7) with a `due_date`:
+- due today and `reminder_sent = 0` → "Ticket due today" to assignees ∪ members (push + email), then `reminder_sent = 1`;
+- past due and `overdue_sent = 0` → "Ticket overdue", then `overdue_sent = 1`.
+
+Both flags re-arm when the due date changes (§4). Compare dates in the business time zone: the reference servers run UTC, so "today" rolled over at 18:00 Mountain. **Keep the cron script and its schedule in version control** (§17).
 
 ### 9. Data-Access Interface
 
@@ -199,6 +253,10 @@ getStats(filter) -> { status: count }
 getSettings(type) -> []
 saveSetting(doc) -> id                     # upsert on (type,value)
 deleteSetting(id)
+nextTicketNumber() -> int                  # insert into ticket_numbers, return insert_id
+getFeature(key) -> bool                    # ticket_features
+setFeature(key, enabled)
+countOverdueAssigned(userId) -> int        # open statuses, due_date < today, assigned to user
 ```
 
 ### 10. API Surface (dual: admin session + user/mobile JWT, mirrored)
@@ -218,34 +276,51 @@ deleteSetting(id)
 | `prefs` | The caller's saved dashboard preferences (`{}` on first use). |
 | `efficiency` | Per-user closed-ticket efficiency (§14). Team-wide — deliberately ignores the caller's filters. |
 
-`list` and `search` both accept `status`, `priority` (CSV) and `scope` (§13.2). Applying scope must never widen access — the visibility filter (§5) still runs on top of whatever scope returns.
+`list` and `search` both accept `status`, `priority` (CSV) and `scope` (§13.2); `list` also takes `department`, `assignee`, `created_by`. Applying scope must never widen access — the visibility filter (§5) still runs on top of whatever scope returns. Paginate `list` (`offset` + `limit` with a total). A fixed cap silently truncates once the table outgrows it (the reference build capped at 500 with ~400 tickets live).
 
-`POST ?action=`: `create`, `update` (diffs status/assignees/members → activity + notifications), `comment`, `time_entry`, `upload`, `delete_attachment`, `save_prefs`.
+`get` / `get_by_number` return each attachment with a signed `url` (1 h) and `is_image`. `employees` returns active users `{id, name, email}` for the pickers.
 
-**User / mobile API** (JWT auth, `require_auth`) — mirrors admin logic, scoped by visibility level:
+`POST ?action=`: `create`, `update` (diffs status/assignees/members → activity + notifications), `comment`, `time_entry` (feature-flagged), `upload`, `delete_attachment`, `save_prefs`. `DELETE ?id=` deletes a ticket and all its children (super admin only). Every state-changing call carries a CSRF token (§15).
+
+**User / mobile API** (JWT auth, `require_auth`) — mirrors admin logic, scoped by visibility level. Envelope `{success: true, data}` / `{success: false, error}` with real HTTP codes. Reference routing is `tickets.php` + `PATH_INFO`:
 
 | Endpoint | Behavior |
 |----------|----------|
-| `GET /tickets` | List visible tickets — filters (`status`, `priority`, `assigned_to`, `mine`), pagination, total. |
-| `GET /tickets/{id}` | One ticket + children (visibility-checked). |
-| `GET /tickets/stats` | `{status: count}` for caller + "mine". |
-| `GET /tickets/{id}/comments` | List comments. |
-| `POST /tickets/{id}/comments` | Add comment (`body`), writes `commented` activity. |
-| `DELETE /tickets/comments/{commentId}` | Delete a comment (author or super admin only). |
-| `POST /tickets` | Create (assignees/members from `assignees[]`/`members[]` or single `assigned_to`). |
-| `POST /tickets/{id}` (update) | Mirrors admin update where the role permits. |
+| `GET tickets.php` | List visible tickets. `status` / `priority` CSV, `department`, `assigned_to`, `created_by`, `mine`, `search`; `page` (default 1) + `limit` (default 50, max 200). Returns `{items, total, page, limit}`. |
+| `GET tickets.php?id=N` | One ticket (visibility-checked, 403/404). |
+| `GET tickets.php/stats` | `{status: {total, mine}}` per status (visibility-filtered); optional `department`. Build the status list from settings. |
+| `GET tickets.php/{id}/comments` | Comments, oldest first: `{id, ticket_id, user_id, user_name, body, created_at}`. |
+| `POST tickets.php/{id}/comments` | Add comment (`{body}`); writes `commented` activity. |
+| `DELETE tickets.php/comments/{commentId}` | Author or super admin; bumps `updated_at`. |
+| `POST tickets.php` | Create: `title`, `description`, `department`, `priority`, `due_date`, `is_private`, `assignees[]` (or single `assigned_to`), `members[]`. Pushes `ticket_assigned` / `ticket_member_added`, never to the creator. |
+| `PUT tickets.php?id=N` | Update the same fields. Due-date change re-arms reminders; closing requires `level <= 1`; writes `status_changed` / `reassigned` / `members_changed`; pushes per §8.2. Empty body → 400. |
+| `DELETE tickets.php?id=N` | Super admin only; cascades children. |
+
+Mobile ticket shape: `id`, `number` (unpadded string), `title`, `description`, `status`, `priority`, `department`, `created_by(_name)`, `assigned_to(_name)` (first assignee), `assignees[]`, `members[]`, `due_date`, `is_private`, `comment_count`, `created_at`, `updated_at`. Related mobile endpoints: per-user push toggles (`notifications.php`) and a dashboard (`open_tickets`, `my_tickets`, overdue / due-today alerts) that applies ticket visibility.
 
 ### 11. Admin UI
 
-**11.1 Dashboard** (landing view) — per-status stat cards showing the org count plus the caller's own ("My Desk") count; clicking a card jumps to the list filtered to that status. Search box. The filter bar (§13). Then "My Assigned Tickets", and a second list whose title follows the scope ("Recent Team Tickets" / "Tickets I'm Part Of" / "My Private Tickets"). Under scope *Mine* the second list is hidden — it would only repeat the first. A gear opens Dashboard Settings: order by, 1–3 columns, show/hide the second list. Bottom: the efficiency meter (§14).
+The admin UI is one React app mounted in the portal page (`tickets.php` → `#root`), with the signed-in user and feature flags injected as `window.__USER__ = {id, name, email, level}` and `window.__TICKET_CONFIG__`. Top bar: brand "Tickets", tabs **Dashboard** / **All Tickets**, and a **New Ticket** button. Deep link: `tickets.php?ticket=00042` opens that ticket (a leading `#` is tolerated).
 
-**11.2 Inbox / all tickets** — debounced search (subject/user/content), the same filter bar, ticket table (number, subject, requester, status pill, priority, department, assignees, last activity). Row → thread. Switching between dashboard and inbox must **not** reset the filters.
+**11.1 Dashboard** (landing view) — four stat cards (one per status, from settings) showing the org count plus the caller's own **"My Desk: N"** count; clicking a card sets that status filter and opens All Tickets. Search box + Search button. The filter bar (§13). Then **"My Assigned Tickets (N)"** (open tickets assigned to me, or the selected statuses), and a second list whose title follows the scope ("Recent Team Tickets" / "Tickets I'm Part Of" / "My Private Tickets"). Under scope *Mine* the second list is hidden — it would only repeat the first. A gear opens **Dashboard Settings**: order by (Newest first / Oldest first / Priority high → low / Recently updated), 1–3 columns, show/hide the second list. Bottom: the efficiency meter (§14).
 
-**11.3 Settings page** (`ticket_settings.php`) — three cards (Statuses, Priorities, Departments). Each row: value, colored label badge, color picker, sort order, Edit/Delete. Add form upserts a setting. Drives every status/priority/department pill app-wide.
+**11.2 All tickets** — search (title + description; debounce ~300 ms, refetching only the list, not stats or employees), Clear, the same filter bar, an **Order** select, and a grid of **ticket cards**. Each card shows a status icon in its colour, `#00042` + truncated title, priority badge, requester, due date, logged time (when time logging is on), comment count and age. Card → ticket detail. Switching between dashboard and All Tickets must **not** reset the filters.
 
-**11.4 Thread view** — header: title + `#number` + status pill + priority + department + Close/assign controls. Chronological comments + interleaved activity-log timeline. Multiple attachment chips/thumbnails (presigned URLs). Assignee + member pickers (from `employees`). Time-entry logger. Reply box + multi-file upload. Status dropdown (from settings). Private toggle.
+**11.3 Settings page** (`ticket_settings.php`, admin only) — an Add / Edit form (Type, Label, Value key, Color, Order) and a **Features** card (Time Logging switch, §3.10), then three tables (Statuses, Priorities, Departments): coloured label badge, value, colour swatch, order, Edit / Delete (confirm). Seeds defaults for any empty type. Drives every status / priority / department pill and picker app-wide (§3.7).
 
-**11.5 Mobile/user client** — list with filters + status pills, ticket detail with comments + attachments, create form, push-notification deep links (`ticket_id`).
+**11.4 Ticket detail** — header: back, status icon, `#number`, title, and **Delete ticket** (super admin, with a "cannot be undone" confirm). Main column:
+- **Description** (plain text, line breaks kept).
+- **Attachments (N)** — drag-and-drop zone ("Add file or drop files here", several files at once); chips with name + size, delete with confirm; image attachments as thumbnails; open via the per-attachment `url` (§6).
+- **Comments (N)** — one card per comment, tinted per author (stable hue from the author id), author + age; single-line "Add a comment…" + Send (Enter submits); delete for the author or a super admin.
+- **Activity Log** — newest first: actor · action · old → new · age, with people shown by name (§7).
+
+Sidebar cards: **Status** select (posts on change), **Priority**, **Time Logged** (flag-gated: total, entries, minutes + note + Log), **Assigned To** and **Ticket Members** (a toggle chip per active user; each toggle saves immediately), **Details** (requester, due date, department). Editing title, description, priority, department, due date and the private flag (by the creator or a super admin) belongs here as well; the mobile app already offers edit and privacy controls.
+
+**11.5 New Ticket modal** — Title * ("What's the issue?"), Description, Priority (Low / Medium / High), Department (from settings), Assigned To and Ticket Members chip pickers, Due Date, "Private ticket" checkbox; Cancel / **Create Ticket** (disabled until there is a title).
+
+**11.6 Portal home** — a "Tickets / Mine" tile and a **My Tickets** card (my five newest open assigned tickets with priority and status badges, View All). Both apply ticket visibility (§5).
+
+**11.7 Mobile/user client** — Tickets tab with a dashboard / list toggle, the four status cards (total + mine), search, My Assigned Tickets; detail with status, assignee and member sheets, privacy toggle, comments (with delete) and attachments; create and edit screens; push deep links (`ticket_id`, §8.2).
 
 ### 12. Reference Schema (MySQL DDL)
 
@@ -261,7 +336,7 @@ CREATE TABLE `tickets` (
   `priority`        ENUM('low','medium','high') NOT NULL DEFAULT 'medium',
   `status`          VARCHAR(50)  NOT NULL DEFAULT 'open',  -- value from ticket_settings
   `is_private`      TINYINT(1)   NOT NULL DEFAULT 0,
-  `due_date`        VARCHAR(20),                           -- 'YYYY-MM-DD'
+  `due_date`        DATE,                                  -- ref build: VARCHAR(20); use DATE
   `created_by`      INT NOT NULL DEFAULT 0,
   `created_by_name` VARCHAR(255),
   `closed_at`       DATETIME, `closed_by` INT, `closed_by_name` VARCHAR(255),
@@ -282,6 +357,10 @@ Child tables (full DDL in the .sql file):
 - `ticket_attachments` — `(ticket_id, name, object_key VARCHAR(1000), size, content_type, uploaded_by, uploaded_by_id, uploaded_at)`.
 - `ticket_settings` — `(type, value, label, color, sort_order)`, unique `(type,value)`, indexed `type`.
 - `ticket_user_prefs` — `(user_id PK, prefs JSON, created_at, updated_at)`. Per-user dashboard filters/scope/layout (§13.3).
+- `ticket_numbers` — `(id AUTO_INCREMENT PK, created_at)`. Ticket number sequence (§3.9).
+- `ticket_features` — `(id, feature_key UNIQUE, enabled, updated_at)`. Feature flags (§3.10), seeded with `time_logging = 0`.
+
+Shared tables the module uses: `notification_settings (event_type, user_id, enabled)` for email recipients, org toggles and push opt-outs; the mobile push-token table; `email_templates`; the users/permissions tables. An imported legacy dataset may still carry `mongo_id` columns; the target schema drops them, so remove every code reference to them in the same change.
 
 > Document-store equivalent: collapse the child tables into embedded arrays on the ticket document (`comments[]`, `time_entries[]`, `activity_log[]`, `attachments[]`, `assignee_ids[]`, `member_ids[]`); keep `ticket_settings` a small collection. The data-access interface (§9) is identical either way.
 
@@ -340,6 +419,8 @@ Scores how long closed tickets stayed assigned to each person. The point is beha
 
 **14.4 Exclusions & honesty.** Service accounts are excluded by id (the reference build hides an "Apple" App Store review account). Accuracy is bounded by how far back the `reassigned` history goes: tickets closed before assignment history existed credit their whole lifetime to the current assignees, which inflates early averages. Say so in the UI or the rollout note rather than presenting the number as exact.
 
+**14.5 Audience & cost.** The meter is shown to every ticket user (it's meant to be visible), and the reference build recomputes it from all closed tickets on each dashboard load. That is fine at a few hundred closed tickets; past that, cache the result (e.g. recompute on close or hourly).
+
 ### 15. Security Rules
 
 - Visibility enforced on BOTH list (filter) and single-read (`user_can_see_ticket`) — non-privileged users get 403/404 for tickets they don't own/assign/member.
@@ -353,6 +434,32 @@ Scores how long closed tickets stayed assigned to each person. The point is beha
 - Scope (§13.2) narrows only — the visibility filter still runs on top of it, and the `private` scope carries its own ownership clause so a super admin cannot read other people's private tickets through it.
 - `save_prefs` allow-lists every key and value; the stored JSON is app-owned, never a passthrough of the client payload.
 - `assignee_ids`/`member_ids` compile to `EXISTS`, not `JOIN` (§5) — a nested filter otherwise 500s on alias collision or silently under-reports.
+- Role rules run server-side on **both** APIs: closing and deleting need `level <= 1`; the private flag and members are changed by the creator or a super admin; the module permission gates every API action.
+- CSRF tokens on every state-changing request of the session API and the settings page forms.
+- Escape every template variable placed in HTML email (titles and names included).
+- `delete_attachment` verifies the key belongs to the ticket before touching storage (§6).
+- Error responses never include file paths, line numbers or SQL; log those server-side.
+- Counts, tiles and activity feeds outside the main list apply ticket visibility (§5). Service accounts (e.g. an App Store review login) get the lowest privilege that demos the app, not super admin, so they can't read private tickets.
+- No credentials in the repository; read them from the environment.
+
+### 16. "Needs attention" Alert (overdue tickets, portal-wide)
+
+A card under the portal logo in the sidebar, on every page, shows the signed-in user's urgent items. For tickets: **"N overdue ticket(s)"** linking to the tickets page, plus a red count badge on the Tickets menu item.
+
+- **Count:** tickets **assigned to me**, in an open status (§3.7), with `due_date` before today (business time zone). Zero when the user lacks the tickets view permission.
+- **Live:** the page polls a small endpoint (`overdue_counts`) every 60 s and when the tab regains focus, animates changes, respects reduced motion, and releases the session lock before querying so it never blocks other requests.
+- **Shared box:** the same card carries other modules' urgent items (overdue tasks, proposals and site visits due within 48 h, expiring compliance documents), so it is built as a small registry of counters rather than ticket-only markup.
+- **Preview:** `?alert_preview=1` (admins) renders sample counts without polling, for design review.
+- The mobile dashboard shows the equivalent alerts (my assigned tickets overdue / due today) inside the app.
+
+### 17. Operations & Lessons from the Reference Build
+
+- **The UI is a build artifact.** Editing the React source does nothing until it is rebuilt and the hashed bundle is committed. A rebuild empties the output folder, so mirror it on deploy (`rsync --delete` or `rm -rf` first); a plain copy leaves stale bundles.
+- **Keep every cron script, its schedule and every migration in version control.** The reference build's reminder cron lived only on the server and was erased by an `rsync --delete` deploy (2026-09-23), silently stopping due/overdue reminders. Code that runs in production but isn't in git will eventually be deleted by a deploy.
+- **Know which folders a `--delete` deploy owns.** The mobile API was later brought into git and deployed without `--delete` for that reason.
+- **Dates and time zones.** Store due dates as `DATE` and compute "today" in the business time zone; UTC servers roll the day over hours early.
+- **Imports.** Reserve the legacy number range in the sequence table before importing, keep imported activity under its own action name (the reference build has a legacy `updated` action), and expect attachments without stored bytes.
+- **Settings drift.** If a list is "configurable", every screen must read it (§3.7); otherwise drop the claim.
 
 ### Reproduction Checklist
 
@@ -370,6 +477,11 @@ Scores how long closed tickets stayed assigned to each person. The point is beha
 12. Build the mobile/user client with push deep links.
 13. Add `ticket_user_prefs` + the `prefs` / `save_prefs` actions; wire the shared filter bar (status, priority, scope) with debounced auto-save and an allow-listed write path (§13).
 14. Add the `efficiency` action + meter: replay `reassigned` history to credit assigned time per user, band it, and show the "take your name off finished work" reminder (§14).
+15. Add `ticket_numbers` (sequence, reserve any legacy range) and `ticket_features` (`time_logging`), with a Features card on the settings page (§3.9, §3.10, §11.3).
+16. Wire push events `ticket_assigned` / `ticket_member_added` / `ticket_updated` / `ticket_due` with org + per-user opt-outs, from both APIs, never to the actor (§8.2); re-arm reminder flags on due-date change (§4).
+17. Add the "Needs attention" sidebar alert: `overdue_counts` endpoint, 60 s polling + on focus, badge on the Tickets menu, preview mode (§16).
+18. Commit the reminder cron and its schedule to the repo; deploy the UI bundle with a mirroring copy (§17).
+19. Apply the security rules in §15: server-side role checks on both APIs, CSRF, escaped email variables, attachment-key ownership on delete, visibility on every count and feed.
 
 ---
 
@@ -381,8 +493,9 @@ Scores how long closed tickets stayed assigned to each person. The point is beha
 | Backend | PHP + MySQL (ref A) or FastAPI + MySQL (ref B) |
 | Frontend | React admin UI + JWT mobile client |
 | Storage | S3-compatible object storage (presigned reads) |
-| Entities | tickets + assignees + members + comments + time entries + activity log + attachments + settings + per-user preferences |
-| Beyond the simple variant | ticket numbers, priorities, departments, configurable color-coded statuses, assignees, members/watchers, time tracking, activity log, multiple attachments, push + in-app notifications, private tickets, due-date/overdue reminders, stats, visibility levels, dual admin+mobile API, dashboard with saved-per-user filters + Mine/My group/All/Private scope, per-user efficiency meter |
+| Entities | tickets + assignees + members + comments + time entries + activity log + attachments + settings + per-user preferences + number sequence + feature flags |
+| Beyond the simple variant | ticket numbers (sequence table), priorities, departments, configurable color-coded statuses, assignees, members/watchers, time tracking (feature-flagged), activity log, multiple attachments, email + push (`ticket_due` included) notifications with org/per-user opt-outs, private tickets, due-date/overdue reminders with re-arm, stats, visibility levels, dual admin+mobile API, dashboard with saved-per-user filters + Mine/My group/All/Private scope, per-user efficiency meter with medals, portal-wide "Needs attention" overdue alert |
+| Last reviewed | 2026-10-19 against the Alta Apps build |
 | Multi-tenant | Role-based visibility levels + private tickets |
 | Depends on | [email-template-system](../email-template-system/SPEC.md) — `new_ticket` / `update_ticket` / `private_ticket` / `support_reply` |
 | **Integration target** | **Must be fully integrated into the demelos.com admin portal ([admin-portal-system](../admin-portal-system/SPEC.md), Express/TS/MySQL/React) — fold into its existing `tickets.ts` / `Tickets.tsx` / `02-tickets-v2.sql`, not a standalone service** |
