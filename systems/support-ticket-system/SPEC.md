@@ -29,7 +29,7 @@ Full internal helpdesk / support ticket system. Authenticated users open tickets
 
 ## Visual Reference
 
-Screenshots of the reference build's React admin UI (`tickets-ui`), rendered with **invented demo data**: every name, ticket and comment is fictional. Use them as the visual guideline for re-implementation.
+Screenshots of the reference build's React admin UI (`tickets-ui`) and the portal sidebar, rendered with **invented demo data**: every name, ticket and comment is fictional, and the sidebar alert shows its preview sample counts. Use them as the visual guideline for re-implementation.
 
 | View | Preview |
 |------|---------|
@@ -37,6 +37,7 @@ Screenshots of the reference build's React admin UI (`tickets-ui`), rendered wit
 | All Tickets: search, filter bar, order select, ticket cards in a grid (§11.2) | ![All tickets](preview/admin-inbox.png) |
 | Ticket detail: description, attachments (drop zone), per-author tinted comments, activity log, sidebar with status, priority, Assigned To / Ticket Members chips, details (§11.4) | ![Ticket detail](preview/admin-thread.png) |
 | New Ticket modal: title, description, priority, department, assignee and member chips, due date, private flag (§11.5) | ![New ticket](preview/admin-new-ticket.png) |
+| Sidebar "Needs attention" alert under the logo (overdue tickets next to other modules' counters) and the red count badge on the Tickets menu item, preview sample counts (§16) | ![Needs attention alert](preview/sidebar-needs-attention.png) |
 
 ---
 
@@ -449,7 +450,8 @@ A card under the portal logo in the sidebar, on every page, shows the signed-in 
 - **Count:** tickets **assigned to me**, in an open status (§3.7), with `due_date` before today (business time zone). Zero when the user lacks the tickets view permission.
 - **Live:** the page polls a small endpoint (`overdue_counts`) every 60 s and when the tab regains focus, animates changes, respects reduced motion, and releases the session lock before querying so it never blocks other requests.
 - **Shared box:** the same card carries other modules' urgent items (overdue tasks, proposals and site visits due within 48 h, expiring compliance documents), so it is built as a small registry of counters rather than ticket-only markup.
-- **Preview:** `?alert_preview=1` (admins) renders sample counts without polling, for design review.
+- **Preview:** `?alert_preview=1` (admins) renders sample counts without polling, for design review. The Visual Reference screenshot shows this mode.
+- **Look:** a red card with a bell and "Needs attention" heading; one row per counter (white count circle, label, chevron), each row a link to its module. Rows with a zero count are hidden, and the card disappears when every count is zero.
 - The mobile dashboard shows the equivalent alerts (my assigned tickets overdue / due today) inside the app.
 
 ### 17. Operations & Lessons from the Reference Build
